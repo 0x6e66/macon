@@ -1,0 +1,15 @@
+[package]
+name = "macon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+arangors = { version = "0.6.0", features = ["blocking", "reqwest_blocking"], default-features = false }
+cag = {path = "../cag/"}
+schemars = "0.8.16"
+serde = "1.0.193"
+serde_json = "1.0.108"
+sha256 = "1.6.0"
+tqdm = "0.8.0"
+walkdir = "2.5.0"
