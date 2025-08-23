@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct FokusedCorpus {
+pub struct FocusedCorpus {
     pub name: String,
     pub display_name: String,
 }

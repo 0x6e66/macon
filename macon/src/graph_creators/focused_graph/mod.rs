@@ -1,20 +1,47 @@
 pub mod coper;
 pub mod nodes;
 
+use anyhow::Result;
 use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
 use cag::{
     base_creator::GraphCreatorBase,
-    utils::{ensure_collection, ensure_database, ensure_graph, establish_database_connection},
+    utils::{
+        config::Config, ensure_collection, ensure_database, ensure_graph,
+        establish_database_connection,
+    },
 };
 
 use crate::graph_creators::focused_graph::nodes::{
-    FokusedCorpus, HasMalwareFamily,
-    coper::{Coper, CoperAPK, CoperELF, CoperHasAPK, CoperHasELF},
+    FocusedCorpus, HasMalwareFamily,
+    coper::{Coper, CoperAPK, CoperELF, CoperHasAPK, CoperHasELF, coper_edge_definitions},
 };
 
-pub struct FokusedGraph;
+pub struct FocusedGraph;
 
-impl GraphCreatorBase for FokusedGraph {
+pub fn focused_graph_main() -> Result<()> {
+    let edge_definitions = vec![coper_edge_definitions()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<EdgeDefinition>>();
+
+    let gc = FocusedGraph;
+
+    let config = Config {
+        database: "focused_corpus".to_string(),
+        graph: "focused_corpus_graph".to_string(),
+        ..Default::default()
+    };
+
+    gc.init(
+        config,
+        "/home/niklas/git/mace/samples/".into(),
+        edge_definitions,
+    )?;
+
+    Ok(())
+}
+
+impl GraphCreatorBase for FocusedGraph {
     fn init(
         &self,
         config: cag::utils::config::Config,
@@ -24,7 +51,7 @@ impl GraphCreatorBase for FokusedGraph {
         let conn = establish_database_connection(&config)?;
         let db = ensure_database(&conn, &config.database)?;
 
-        ensure_collection::<FokusedCorpus>(&db, CollectionType::Document)?;
+        ensure_collection::<FocusedCorpus>(&db, CollectionType::Document)?;
         ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge)?;
 
         ensure_collection::<Coper>(&db, CollectionType::Document)?;
@@ -34,13 +61,13 @@ impl GraphCreatorBase for FokusedGraph {
         ensure_collection::<CoperHasAPK>(&db, CollectionType::Edge)?;
         ensure_collection::<CoperHasELF>(&db, CollectionType::Edge)?;
 
-        let corpus_node: Document<FokusedCorpus> = self.upsert_node::<FokusedCorpus>(
-            FokusedCorpus {
-                name: "FokusedCorpus".to_string(),
-                display_name: "FokusedCorpus".to_string(),
+        let corpus_node: Document<FocusedCorpus> = self.upsert_node::<FocusedCorpus>(
+            FocusedCorpus {
+                name: "FocusedCorpus".to_string(),
+                display_name: "FocusedCorpus".to_string(),
             },
             "name".to_string(),
-            "FokusedCorpus".to_string(),
+            "FocusedCorpus".to_string(),
             &db,
         )?;
 

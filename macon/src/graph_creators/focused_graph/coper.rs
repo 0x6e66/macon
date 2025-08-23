@@ -6,20 +6,20 @@ use cag::base_creator::GraphCreatorBase;
 use sha256::digest;
 
 use crate::graph_creators::focused_graph::{
-    FokusedGraph,
+    FocusedGraph,
     nodes::{
-        FokusedCorpus, HasMalwareFamily,
+        FocusedCorpus, HasMalwareFamily,
         coper::{Coper, CoperAPK, CoperHasAPK},
     },
 };
 
 type Database = arangors::Database<ReqwestClient>;
 
-impl FokusedGraph {
+impl FocusedGraph {
     pub fn coper_main(
         &self,
         mut path: PathBuf,
-        corpus_node: &Document<FokusedCorpus>,
+        corpus_node: &Document<FocusedCorpus>,
         db: &Database,
     ) -> Result<()> {
         let main_node = self.coper_create_main_node(corpus_node, db)?;
@@ -42,7 +42,7 @@ impl FokusedGraph {
 
     fn coper_create_main_node(
         &self,
-        corpus_node: &Document<FokusedCorpus>,
+        corpus_node: &Document<FocusedCorpus>,
         db: &Database,
     ) -> Result<Document<Coper>> {
         let coper = Coper {
@@ -53,7 +53,7 @@ impl FokusedGraph {
         let main_node: Document<Coper> =
             self.upsert_node::<Coper>(coper, "name".to_string(), "Coper".to_string(), db)?;
 
-        self.upsert_edge::<FokusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node, db)?;
+        self.upsert_edge::<FocusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node, db)?;
 
         Ok(main_node)
     }
