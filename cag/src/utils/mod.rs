@@ -70,58 +70,6 @@ where
         return Ok(collection);
     }
 
-    // let mut root_schema = serde_json::to_value(schema_for!(CollType))?;
-
-    // remove the keys `_key`, `_from`, `_to` and `_id` from schema because creation of edges does not work otherwise
-    // if collection_type == CollectionType::Edge {
-    //     let tmp = serde_json::to_value(&root_schema)?;
-    //     let mut obj = tmp
-    //         .as_object()
-    //         .ok_or(Error::Generic(format!(
-    //             "Could not transform CollType '{}' to serde object",
-    //             get_name::<CollType>()
-    //         )))?
-    //         .clone();
-    //
-    //     let properties = obj.get_mut("properties").unwrap().as_object_mut().unwrap();
-    //     properties.remove("_key");
-    //     properties.remove("_from");
-    //     properties.remove("_to");
-    //     properties.remove("_id");
-    //     let properties = serde_json::to_value(properties)?;
-    //
-    //     let required = obj.get("required").unwrap().as_array().unwrap();
-    //     let mut new_required: Vec<Value> = vec![];
-    //     for val in required {
-    //         if let Some(s) = val.as_str() {
-    //             if !["_key", "_from", "_to", "_id"].contains(&s) {
-    //                 new_required.push(Value::String(s.to_owned()));
-    //             }
-    //         }
-    //     }
-    //     let required = serde_json::to_value(new_required)?;
-    //
-    //     obj.insert("properties".to_owned(), properties);
-    //     obj.insert("required".to_owned(), required);
-    //
-    //     root_schema = serde_json::to_value(obj)?;
-    // }
-
-    // let schema = json!({
-    //     "rule": root_schema,
-    //     "level": "strict",
-    //     "message": format!("The document you supplied does not fit the schema that this collection is restricted to. Schema: '{}'", serde_json::to_string(&root_schema)?)
-    // });
-
-    // let create_options = CreateOptions::builder()
-    //     .name(&collection_name)
-    //     .schema(schema)
-    //     .collection_type(collection_type)
-    //     .build();
-    // let create_parameters = CreateParameters::builder().build();
-    //
-    // let collection = db.create_collection_with_options(create_options, create_parameters)?;
-
     let create_options = CreateOptions::builder()
         .name(&collection_name)
         .collection_type(collection_type)
@@ -178,7 +126,12 @@ pub fn get_name<T>() -> String {
     std::any::type_name::<T>()
         .split("::")
         .last()
-        .unwrap()
+        .unwrap_or_else(|| {
+            panic!(
+                "Getting the name of Type '{}' failed",
+                std::any::type_name::<T>()
+            )
+        })
         .to_owned()
 }
 

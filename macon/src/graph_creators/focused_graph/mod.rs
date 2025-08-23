@@ -1,7 +1,7 @@
 pub mod coper;
 pub mod nodes;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
 use cag::{
     base_creator::GraphCreatorBase,
@@ -71,14 +71,17 @@ impl GraphCreatorBase for FocusedGraph {
             &db,
         )?;
 
-        let rd = std::fs::read_dir(data_path).unwrap();
+        let rd = std::fs::read_dir(data_path).map_err(anyhow::Error::new)?;
         for entry in rd {
-            let entry = entry.unwrap();
+            let entry = entry.map_err(anyhow::Error::new)?;
 
-            let file_name = entry.file_name().into_string().unwrap();
+            let file_name = entry
+                .file_name()
+                .into_string()
+                .map_err(|e| anyhow!("{e:?}"))?;
 
             if file_name.as_str() == "apk.coper" {
-                self.coper_main(entry.path(), &corpus_node, &db).unwrap();
+                self.coper_main(entry.path(), &corpus_node, &db)?;
             }
         }
 

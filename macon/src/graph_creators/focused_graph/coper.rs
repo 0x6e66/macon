@@ -1,6 +1,6 @@
 use std::{fs::read_dir, io::Read, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use arangors::{Document, client::reqwest::ReqwestClient};
 use cag::base_creator::GraphCreatorBase;
 use sha256::digest;
@@ -32,7 +32,10 @@ impl FocusedGraph {
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
 
-            let file_name = entry.file_name().into_string().unwrap();
+            let file_name = entry
+                .file_name()
+                .into_string()
+                .map_err(|e| anyhow!("{e:?}"))?;
 
             self.coper_handle_sample(&buf, file_name, &main_node, db)?;
         }
@@ -67,8 +70,7 @@ impl FocusedGraph {
     ) -> Result<()> {
         let apk_node = self.coper_create_apk_node(sample_data, file_name, db)?;
 
-        self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)
-            .unwrap();
+        self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
 
         Ok(())
     }

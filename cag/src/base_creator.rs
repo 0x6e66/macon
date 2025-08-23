@@ -69,7 +69,7 @@ pub trait GraphCreatorBase {
 
                 let doc = doc.document;
 
-                let coll = db.collection(collection_name.as_str()).unwrap();
+                let coll = db.collection(collection_name.as_str())?;
 
                 let update_ops = UpdateOptions::builder().return_new(true).build();
                 let response = coll.update_document(key, doc, update_ops);
