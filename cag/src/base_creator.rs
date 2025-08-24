@@ -43,6 +43,7 @@ pub trait GraphCreatorBase {
         Ok(doc)
     }
 
+    // TODO: edit return type to indicate if node was created or updated
     fn upsert_node<CollType>(
         &self,
         data: CollType,

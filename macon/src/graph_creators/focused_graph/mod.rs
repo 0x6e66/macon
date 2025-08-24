@@ -19,10 +19,10 @@ use crate::graph_creators::focused_graph::nodes::{
 pub struct FocusedGraph;
 
 pub fn focused_graph_main() -> Result<()> {
-    let edge_definitions = vec![coper_edge_definitions()]
+    let edge_definitions: Vec<EdgeDefinition> = vec![coper_edge_definitions()]
         .into_iter()
         .flatten()
-        .collect::<Vec<EdgeDefinition>>();
+        .collect();
 
     let gc = FocusedGraph;
 
@@ -51,16 +51,25 @@ impl GraphCreatorBase for FocusedGraph {
         let conn = establish_database_connection(&config)?;
         let db = ensure_database(&conn, &config.database)?;
 
+        // Base Nodes and Edges
         ensure_collection::<FocusedCorpus>(&db, CollectionType::Document)?;
         ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge)?;
 
+        // ============================== Coper ==============================
+        // Nodes
         ensure_collection::<Coper>(&db, CollectionType::Document)?;
         ensure_collection::<CoperAPK>(&db, CollectionType::Document)?;
         ensure_collection::<CoperELF>(&db, CollectionType::Document)?;
 
+        // Edges
         ensure_collection::<CoperHasAPK>(&db, CollectionType::Edge)?;
         ensure_collection::<CoperHasELF>(&db, CollectionType::Edge)?;
 
+        // ============================== Other Family ==============================
+        // Nodes
+        // Edges
+
+        // create corpus node
         let corpus_node: Document<FocusedCorpus> = self.upsert_node::<FocusedCorpus>(
             FocusedCorpus {
                 name: "FocusedCorpus".to_string(),
@@ -71,6 +80,7 @@ impl GraphCreatorBase for FocusedGraph {
             &db,
         )?;
 
+        // Iterate over data path and select graph creation by family
         let rd = std::fs::read_dir(data_path).map_err(anyhow::Error::new)?;
         for entry in rd {
             let entry = entry.map_err(anyhow::Error::new)?;
@@ -80,6 +90,7 @@ impl GraphCreatorBase for FocusedGraph {
                 .into_string()
                 .map_err(|e| anyhow!("{e:?}"))?;
 
+            // select graph creation by family
             if file_name.as_str() == "apk.coper" {
                 self.coper_main(entry.path(), &corpus_node, &db)?;
             }

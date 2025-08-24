@@ -27,6 +27,7 @@ impl FocusedGraph {
         path.push("direct");
         let rd = read_dir(&path)?;
 
+        // Iterate over Coper samples in "direct" directory
         for entry in tqdm::tqdm(rd.filter_map(|e| e.ok())) {
             let mut file = std::fs::File::open(entry.path())?;
             let mut buf = Vec::new();
@@ -37,12 +38,14 @@ impl FocusedGraph {
                 .into_string()
                 .map_err(|e| anyhow!("{e:?}"))?;
 
+            // handle sample
             self.coper_handle_sample(&buf, file_name, &main_node, db)?;
         }
 
         Ok(())
     }
 
+    /// Creates node in "Coper" collection and creates an edge to the corpus node
     fn coper_create_main_node(
         &self,
         corpus_node: &Document<FocusedCorpus>,
@@ -68,6 +71,26 @@ impl FocusedGraph {
         main_node: &Document<Coper>,
         db: &Database,
     ) -> Result<()> {
+        // TODO: check if sample is APK or ELF
+        // Planned workflow:
+        //  1. Determine if sample is APK or ELF
+        //  2. If APK
+        //      2.1 upsert APK node
+        //      2.2 extract ELFs
+        //      2.3 if ELFs in DB
+        //          - check if APK is ghost node
+        //          - if GN remove GN
+        //      2.4 upsert ELF nodes
+        //      2.5 create edges
+        //
+        //  3. If ELF
+        //      3.1 if ELF is in DB
+        //          - continue
+        //      3.2 if ELF not in DB
+        //          - create ghost APK node
+        //          - upsert ELF
+        //          - create edge
+
         let apk_node = self.coper_create_apk_node(sample_data, file_name, db)?;
 
         self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
