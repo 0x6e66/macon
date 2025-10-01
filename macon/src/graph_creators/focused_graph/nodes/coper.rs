@@ -20,13 +20,7 @@ pub struct CoperHasAPK {
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
 pub struct CoperAPK {
-    pub original_filename: Option<String>,
-    pub display_name: String,
     pub sha256sum: String,
-
-    // true if the APK contains a /lib directory with subdirectories for a native version of the
-    // app (ELF in various architectures)
-    pub has_native_lib: bool,
 
     // true if the EOCD of the APK/Zip is missing. This indicated the original sample was cut off
     // at some point
@@ -42,17 +36,19 @@ pub struct CoperHasELF {
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 pub struct CoperELF {
-    pub original_filename: String,
-    pub display_name: String,
     pub sha256sum: String,
     pub architecture: CoperELFArchitecture,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 pub enum CoperELFArchitecture {
+    #[serde(rename = "x86_64")]
     X86_64,
+    #[serde(rename = "x86")]
     X86,
+    #[serde(rename = "arm64-v8a")]
     Arm64V8a,
+    #[serde(rename = "armeabi-v7a")]
     ArmEabiV7a,
 }
 

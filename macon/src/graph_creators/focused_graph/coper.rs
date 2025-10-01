@@ -1,15 +1,20 @@
-use std::{fs::read_dir, io::Read, path::PathBuf};
+use std::{
+    fs::read_dir,
+    io::{Cursor, Read},
+    path::PathBuf,
+};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use arangors::{Document, client::reqwest::ReqwestClient};
 use cag::base_creator::GraphCreatorBase;
 use sha256::digest;
+use zip::ZipArchive;
 
 use crate::graph_creators::focused_graph::{
     FocusedGraph,
     nodes::{
         FocusedCorpus, HasMalwareFamily,
-        coper::{Coper, CoperAPK, CoperHasAPK},
+        coper::{Coper, CoperAPK, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasELF},
     },
 };
 
@@ -33,13 +38,8 @@ impl FocusedGraph {
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
 
-            let file_name = entry
-                .file_name()
-                .into_string()
-                .map_err(|e| anyhow!("{e:?}"))?;
-
             // handle sample
-            self.coper_handle_sample(&buf, file_name, &main_node, db)?;
+            self.coper_handle_sample(&buf, &main_node, db)?;
         }
 
         Ok(())
@@ -67,11 +67,10 @@ impl FocusedGraph {
     fn coper_handle_sample(
         &self,
         sample_data: &[u8],
-        file_name: String,
         main_node: &Document<Coper>,
         db: &Database,
     ) -> Result<()> {
-        // TODO: check if sample is APK or ELF
+        // check if sample is APK or ELF
         // Planned workflow:
         //  1. Determine if sample is APK or ELF
         //  2. If APK
@@ -91,9 +90,13 @@ impl FocusedGraph {
         //          - upsert ELF
         //          - create edge
 
-        let apk_node = self.coper_create_apk_node(sample_data, file_name, db)?;
+        // determine if sample is APK or ELF
 
+        // sample is APK
+        let apk_node = self.coper_create_apk_node(sample_data, db)?;
         self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
+
+        // TODO:sample is ELF
 
         Ok(())
     }
@@ -101,26 +104,91 @@ impl FocusedGraph {
     fn coper_create_apk_node(
         &self,
         sample_data: &[u8],
-        file_name: String,
         db: &Database,
     ) -> Result<Document<CoperAPK>> {
+        // extract elfs
+        let apk_analysis_result = analyse_apk(sample_data);
+
         let sha256sum = digest(sample_data);
-
-        // TODO: actually check for native libs and EOCD
-
         let apk_data = CoperAPK {
-            original_filename: Some(file_name.clone()),
-            display_name: file_name,
             sha256sum: sha256sum.clone(),
-            has_native_lib: false,
-            is_cut: false,
+            is_cut: apk_analysis_result.as_ref().is_ok_and(|res| res.is_cut),
         };
 
         let apk_node: Document<CoperAPK> =
             self.upsert_node::<CoperAPK>(apk_data, "sha256sum".to_string(), sha256sum, db)?;
 
-        // TODO: extract ELF and create nodes
+        // create and upsert elf nodes and edges
+        if let Ok(res) = apk_analysis_result {
+            for (sha256sum, architecture) in res.elfs {
+                let elf_data = CoperELF {
+                    architecture,
+                    sha256sum: sha256sum.clone(),
+                };
+
+                // TODO: if ELF is already in DB, handle potential ghost node
+
+                let elf_node: Document<CoperELF> =
+                    self.upsert_node::<CoperELF>(elf_data, "sha256sum".to_string(), sha256sum, db)?;
+                self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node, db)?;
+            }
+        }
 
         Ok(apk_node)
     }
+}
+
+struct APKAnalysisResult {
+    is_cut: bool,
+    elfs: Vec<(String, CoperELFArchitecture)>,
+}
+
+fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
+    let cursor = Cursor::new(sample_data);
+    let Ok(mut archive) = ZipArchive::new(cursor) else {
+        return Ok(APKAnalysisResult {
+            is_cut: true,
+            elfs: vec![],
+        });
+    };
+
+    let mut elfs = vec![];
+
+    let filenames: Vec<String> = archive
+        .file_names()
+        .filter(|filename| filename.starts_with("lib/"))
+        .map(|s| s.to_owned())
+        .collect();
+
+    for filename in filenames {
+        if let Ok(mut zipfile) = archive.by_name(&filename) {
+            // read data of elf to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            let architecture: CoperELFArchitecture;
+
+            if filename.starts_with("lib/armeabi-v7a/") {
+                architecture = CoperELFArchitecture::ArmEabiV7a;
+            } else if filename.starts_with("lib/arm64-v8a/") {
+                architecture = CoperELFArchitecture::Arm64V8a;
+            } else if filename.starts_with("lib/x86_64/") {
+                architecture = CoperELFArchitecture::X86_64;
+            } else if filename.starts_with("lib/x86/") {
+                architecture = CoperELFArchitecture::X86;
+            } else {
+                continue;
+            }
+
+            let digest = digest(&buff);
+            elfs.push((digest, architecture));
+        }
+    }
+
+    Ok(APKAnalysisResult {
+        is_cut: false,
+        elfs,
+    })
 }
