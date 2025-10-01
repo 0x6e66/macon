@@ -32,11 +32,7 @@ pub fn focused_graph_main() -> Result<()> {
         ..Default::default()
     };
 
-    gc.init(
-        config,
-        "/home/niklas/git/mace/samples/".into(),
-        edge_definitions,
-    )?;
+    gc.init(config, "samples/".into(), edge_definitions)?;
 
     Ok(())
 }
