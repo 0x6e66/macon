@@ -1,8 +1,8 @@
 pub mod coper;
 pub mod nodes;
 
-use anyhow::{Result, anyhow};
-use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
+use anyhow::{anyhow, Result};
+use arangors::{collection::CollectionType, graph::EdgeDefinition, Document};
 use cag::{
     base_creator::GraphCreatorBase,
     utils::{
@@ -12,8 +12,8 @@ use cag::{
 };
 
 use crate::graph_creators::focused_graph::nodes::{
+    coper::{coper_edge_definitions, Coper, CoperAPK, CoperELF, CoperHasAPK, CoperHasELF},
     FocusedCorpus, HasMalwareFamily,
-    coper::{Coper, CoperAPK, CoperELF, CoperHasAPK, CoperHasELF, coper_edge_definitions},
 };
 
 pub struct FocusedGraph;
@@ -47,6 +47,8 @@ impl GraphCreatorBase for FocusedGraph {
         let conn = establish_database_connection(&config)?;
         let db = ensure_database(&conn, &config.database)?;
 
+        // TODO: maybe move creation of collections to the respective modules
+
         // Base Nodes and Edges
         ensure_collection::<FocusedCorpus>(&db, CollectionType::Document)?;
         ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge)?;
@@ -66,15 +68,17 @@ impl GraphCreatorBase for FocusedGraph {
         // Edges
 
         // create corpus node
-        let corpus_node: Document<FocusedCorpus> = self.upsert_node::<FocusedCorpus>(
-            FocusedCorpus {
-                name: "FocusedCorpus".to_string(),
-                display_name: "FocusedCorpus".to_string(),
-            },
-            "name".to_string(),
-            "FocusedCorpus".to_string(),
-            &db,
-        )?;
+        let corpus_node: Document<FocusedCorpus> = self
+            .upsert_node::<FocusedCorpus>(
+                FocusedCorpus {
+                    name: "FocusedCorpus".to_string(),
+                    display_name: "FocusedCorpus".to_string(),
+                },
+                "name".to_string(),
+                "FocusedCorpus".to_string(),
+                &db,
+            )?
+            .document;
 
         // Iterate over data path and select graph creation by family
         let rd = std::fs::read_dir(data_path).map_err(anyhow::Error::new)?;

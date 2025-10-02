@@ -6,15 +6,20 @@ use crate::{
 };
 
 use arangors::{
-    AqlQuery, Document,
     client::reqwest::ReqwestClient,
     document::options::{InsertOptions, UpdateOptions},
     graph::EdgeDefinition,
+    AqlQuery, Document,
 };
 use schemars::JsonSchema;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 type Database = arangors::Database<ReqwestClient>;
+
+pub struct UpsertResult<CollType> {
+    pub document: Document<CollType>,
+    pub created: bool,
+}
 
 pub trait GraphCreatorBase {
     fn init(
@@ -43,49 +48,42 @@ pub trait GraphCreatorBase {
         Ok(doc)
     }
 
-    // TODO: edit return type to indicate if node was created or updated
     fn upsert_node<CollType>(
         &self,
         data: CollType,
         alt_key: String,
         alt_val: String,
         db: &Database,
-    ) -> Result<Document<CollType>>
+    ) -> Result<UpsertResult<CollType>>
     where
         CollType: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
     {
-        let collection_name = get_name::<CollType>();
-
-        let node = self.get_document::<CollType>(alt_key, alt_val, db);
-        match node {
-            Err(e) => match e {
-                Error::DocumentNotFound(_) => {
+        // check if document is already in DB
+        match self.get_document::<CollType>(alt_key, alt_val, db) {
+            Err(e) => {
+                if matches!(e, Error::DocumentNotFound(_)) {
+                    // create new document in collection `CollType`
                     let doc: Document<CollType> = self.create_vertex::<CollType>(data, db)?;
-                    Ok(doc)
-                }
-                e => Err(e),
-            },
-            Ok(doc) => {
-                let key = doc.header._key.as_str();
 
-                let doc = doc.document;
-
-                let coll = db.collection(collection_name.as_str())?;
-
-                let update_ops = UpdateOptions::builder().return_new(true).build();
-                let response = coll.update_document(key, doc, update_ops);
-
-                match response {
-                    Err(e) => Err(e.into()),
-                    Ok(doc_res) => {
-                        let new_doc = handle_document_response::<CollType>(doc_res)?;
-                        Ok(new_doc)
-                    }
+                    // return new document
+                    Ok(UpsertResult {
+                        document: doc,
+                        created: true,
+                    })
+                } else {
+                    Err(e)
                 }
             }
+            // document was found in DB, return old document
+            Ok(doc) => Ok(UpsertResult {
+                document: doc,
+                created: false,
+            }),
         }
     }
 
+    /// Searches for a document in collection `CollType` with the key, value combination alt_key,
+    /// alt_val
     fn get_document<CollType>(
         &self,
         alt_key: String,

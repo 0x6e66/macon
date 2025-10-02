@@ -5,17 +5,17 @@ use std::{
 };
 
 use anyhow::Result;
-use arangors::{Document, client::reqwest::ReqwestClient};
-use cag::base_creator::GraphCreatorBase;
+use arangors::{client::reqwest::ReqwestClient, Document};
+use cag::base_creator::{GraphCreatorBase, UpsertResult};
 use sha256::digest;
 use zip::ZipArchive;
 
 use crate::graph_creators::focused_graph::{
-    FocusedGraph,
     nodes::{
-        FocusedCorpus, HasMalwareFamily,
         coper::{Coper, CoperAPK, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasELF},
+        FocusedCorpus, HasMalwareFamily,
     },
+    FocusedGraph,
 };
 
 type Database = arangors::Database<ReqwestClient>;
@@ -56,8 +56,10 @@ impl FocusedGraph {
             display_name: "Coper".to_string(),
         };
 
-        let main_node: Document<Coper> =
-            self.upsert_node::<Coper>(coper, "name".to_string(), "Coper".to_string(), db)?;
+        let UpsertResult {
+            document: main_node,
+            created,
+        } = self.upsert_node::<Coper>(coper, "name".to_string(), "Coper".to_string(), db)?;
 
         self.upsert_edge::<FocusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node, db)?;
 
@@ -115,8 +117,10 @@ impl FocusedGraph {
             is_cut: apk_analysis_result.as_ref().is_ok_and(|res| res.is_cut),
         };
 
-        let apk_node: Document<CoperAPK> =
-            self.upsert_node::<CoperAPK>(apk_data, "sha256sum".to_string(), sha256sum, db)?;
+        let UpsertResult {
+            document: apk_node,
+            created,
+        } = self.upsert_node::<CoperAPK>(apk_data, "sha256sum".to_string(), sha256sum, db)?;
 
         // create and upsert elf nodes and edges
         if let Ok(res) = apk_analysis_result {
@@ -128,7 +132,10 @@ impl FocusedGraph {
 
                 // TODO: if ELF is already in DB, handle potential ghost node
 
-                let elf_node: Document<CoperELF> =
+                let UpsertResult {
+                    document: elf_node,
+                    created,
+                } =
                     self.upsert_node::<CoperELF>(elf_data, "sha256sum".to_string(), sha256sum, db)?;
                 self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node, db)?;
             }
