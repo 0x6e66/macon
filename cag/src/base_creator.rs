@@ -9,7 +9,7 @@ use arangors::{
     client::reqwest::ReqwestClient,
     document::options::{InsertOptions, UpdateOptions},
     graph::EdgeDefinition,
-    AqlQuery, Document,
+    AqlQuery, ArangoError, ClientError, Document,
 };
 use schemars::JsonSchema;
 use serde::{de::DeserializeOwned, Serialize};
@@ -131,31 +131,26 @@ pub trait GraphCreatorBase {
 
         let mut edge = EdgeType::default();
 
+        // construct edge key
         edge.apply_edge_attributes(from_doc.header._id.clone(), to_doc.header._id.clone());
         let edge_key = edge.get_key();
 
-        let node = coll.document::<EdgeType>(&edge_key);
+        // check if edge already exists in DB
+        match coll.document::<EdgeType>(&edge_key) {
+            Err(ClientError::Arango(e)) => {
+                // check if error type is "ERROR_ARANGO_DOCUMENT_NOT_FOUND"
+                if e.error_num() != 1202 {
+                    return Err(Error::ArangoArangoError(e));
+                }
 
-        match node {
-            Err(_) => {
+                // edge is not in DB, create and return edge
                 let doc: Document<EdgeType> = self.create_vertex::<EdgeType>(edge.clone(), db)?;
                 Ok(doc)
             }
-            Ok(doc) => {
-                let key = doc.header._key.as_str();
-                let doc = doc.document;
-
-                let update_ops = UpdateOptions::builder().return_new(true).build();
-                let response = coll.update_document(key, doc, update_ops);
-
-                match response {
-                    Err(e) => Err(e.into()),
-                    Ok(doc_res) => {
-                        let new_doc = handle_document_response::<EdgeType>(doc_res)?;
-                        Ok(new_doc)
-                    }
-                }
-            }
+            // other error
+            Err(e) => Err(Error::ArangoClientError(e)),
+            // edge is already in DB
+            Ok(doc) => Ok(doc),
         }
     }
 }
