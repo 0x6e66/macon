@@ -1,7 +1,8 @@
 use std::{
-    fs::read_dir,
+    fs::{read_dir, DirEntry},
     io::{Cursor, Read},
     path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
@@ -10,6 +11,8 @@ use cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_collection,
 };
+use indicatif::ParallelProgressIterator;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
 use zip::ZipArchive;
 
@@ -46,14 +49,29 @@ impl FocusedGraph {
         path.push("direct");
         let rd = read_dir(&path)?;
 
-        // Iterate over Coper samples in "direct" directory
-        for entry in tqdm::tqdm(rd.filter_map(|e| e.ok())) {
-            let mut file = std::fs::File::open(entry.path())?;
-            let mut buf = Vec::new();
-            file.read_to_end(&mut buf)?;
+        let files: Vec<DirEntry> = rd.into_iter().filter_map(|res| res.ok()).collect();
 
-            // handle sample
-            self.coper_handle_sample(&buf, &main_node, db)?;
+        let errors: Arc<Mutex<Vec<anyhow::Error>>> = Arc::new(Mutex::new(Vec::new()));
+
+        files
+            .par_iter()
+            .progress()
+            .for_each(|entry| match std::fs::File::open(entry.path()) {
+                Err(e) => errors.lock().unwrap().push(e.into()),
+                Ok(mut file) => {
+                    let mut buf = Vec::new();
+                    match file.read_to_end(&mut buf) {
+                        Err(e) => errors.lock().unwrap().push(e.into()),
+                        Ok(_) => match self.coper_handle_sample(&buf, &main_node, db) {
+                            Ok(_) => (),
+                            Err(e) => errors.lock().unwrap().push(e),
+                        },
+                    }
+                }
+            });
+
+        for e in errors.lock().unwrap().iter() {
+            eprintln!("{e}");
         }
 
         Ok(())
