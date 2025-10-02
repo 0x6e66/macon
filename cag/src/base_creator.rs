@@ -6,10 +6,8 @@ use crate::{
 };
 
 use arangors::{
-    client::reqwest::ReqwestClient,
-    document::options::{InsertOptions, UpdateOptions},
-    graph::EdgeDefinition,
-    AqlQuery, ArangoError, ClientError, Document,
+    client::reqwest::ReqwestClient, document::options::InsertOptions, graph::EdgeDefinition,
+    AqlQuery, ClientError, Document,
 };
 use schemars::JsonSchema;
 use serde::{de::DeserializeOwned, Serialize};
@@ -60,20 +58,21 @@ pub trait GraphCreatorBase {
     {
         // check if document is already in DB
         match self.get_document::<CollType>(alt_key, alt_val, db) {
-            Err(e) => {
-                if matches!(e, Error::DocumentNotFound(_)) {
-                    // create new document in collection `CollType`
-                    let doc: Document<CollType> = self.create_vertex::<CollType>(data, db)?;
+            // document is not in DB
+            Err(Error::DocumentNotFound(_)) => {
+                // create new document in collection `CollType`
+                let doc: Document<CollType> = self.create_vertex::<CollType>(data, db)?;
 
-                    // return new document
-                    Ok(UpsertResult {
-                        document: doc,
-                        created: true,
-                    })
-                } else {
-                    Err(e)
-                }
+                // return new document
+                Ok(UpsertResult {
+                    document: doc,
+                    created: true,
+                })
             }
+
+            // other error
+            Err(e) => Err(e),
+
             // document was found in DB, return old document
             Ok(doc) => Ok(UpsertResult {
                 document: doc,
@@ -147,8 +146,10 @@ pub trait GraphCreatorBase {
                 let doc: Document<EdgeType> = self.create_vertex::<EdgeType>(edge.clone(), db)?;
                 Ok(doc)
             }
+
             // other error
             Err(e) => Err(Error::ArangoClientError(e)),
+
             // edge is already in DB
             Ok(doc) => Ok(doc),
         }
