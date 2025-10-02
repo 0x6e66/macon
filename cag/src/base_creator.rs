@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::{
     prelude::*,
-    utils::{config::Config, ensure_index, get_name, handle_document_response},
+    utils::{config::Config, get_name, handle_document_response},
 };
 
 use arangors::{
@@ -92,8 +92,6 @@ pub trait GraphCreatorBase {
     where
         CollType: DeserializeOwned + JsonSchema,
     {
-        ensure_index::<CollType>(db, vec![alt_key.clone()])?;
-
         let collection_name = get_name::<CollType>();
 
         let aql = AqlQuery::builder()

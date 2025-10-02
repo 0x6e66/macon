@@ -1,18 +1,18 @@
 pub mod config;
 
 use arangors::{
-    Connection, Document,
     client::reqwest::ReqwestClient,
     collection::{
-        CollectionType,
         options::{CreateOptions, CreateParameters},
+        CollectionType,
     },
-    document::{Header, response::DocumentResponse},
+    document::{response::DocumentResponse, Header},
     graph::{EdgeDefinition, Graph},
     index::{Index, IndexSettings},
+    Connection, Document,
 };
 use schemars::JsonSchema;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::prelude::*;
 
@@ -28,7 +28,7 @@ pub fn establish_database_connection(config: &Config) -> Result<Connection> {
     }
 }
 
-pub fn ensure_index<CollType>(db: &Database, fields: Vec<String>) -> Result<Index>
+fn ensure_index<CollType>(db: &Database, fields: Vec<String>) -> Result<Index>
 where
     CollType: JsonSchema,
 {
@@ -60,6 +60,7 @@ pub fn ensure_database(conn: &Connection, db_name: &str) -> Result<Database> {
 pub fn ensure_collection<CollType>(
     db: &Database,
     collection_type: CollectionType,
+    index_fields: Option<Vec<String>>,
 ) -> Result<Collection>
 where
     CollType: DeserializeOwned + Serialize + JsonSchema,
@@ -77,6 +78,10 @@ where
     let create_parameters = CreateParameters::builder().build();
 
     let collection = db.create_collection_with_options(create_options, create_parameters)?;
+
+    if let Some(fields) = index_fields {
+        ensure_index::<CollType>(db, fields)?;
+    }
 
     Ok(collection)
 }

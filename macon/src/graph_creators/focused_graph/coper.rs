@@ -5,8 +5,11 @@ use std::{
 };
 
 use anyhow::Result;
-use arangors::{client::reqwest::ReqwestClient, Document};
-use cag::base_creator::{GraphCreatorBase, UpsertResult};
+use arangors::{client::reqwest::ReqwestClient, collection::CollectionType, Document};
+use cag::{
+    base_creator::{GraphCreatorBase, UpsertResult},
+    utils::ensure_collection,
+};
 use sha256::digest;
 use zip::ZipArchive;
 
@@ -27,6 +30,17 @@ impl FocusedGraph {
         corpus_node: &Document<FocusedCorpus>,
         db: &Database,
     ) -> Result<()> {
+        let sha_index_fields = Some(vec!["sha256sum".into()]);
+
+        // Nodes
+        ensure_collection::<Coper>(db, CollectionType::Document, None)?;
+        ensure_collection::<CoperAPK>(db, CollectionType::Document, sha_index_fields.clone())?;
+        ensure_collection::<CoperELF>(db, CollectionType::Document, sha_index_fields)?;
+
+        // Edges
+        ensure_collection::<CoperHasAPK>(db, CollectionType::Edge, None)?;
+        ensure_collection::<CoperHasELF>(db, CollectionType::Edge, None)?;
+
         let main_node = self.coper_create_main_node(corpus_node, db)?;
 
         path.push("direct");

@@ -12,8 +12,7 @@ use cag::{
 };
 
 use crate::graph_creators::focused_graph::nodes::{
-    coper::{coper_edge_definitions, Coper, CoperAPK, CoperELF, CoperHasAPK, CoperHasELF},
-    FocusedCorpus, HasMalwareFamily,
+    coper::coper_edge_definitions, FocusedCorpus, HasMalwareFamily,
 };
 
 pub struct FocusedGraph;
@@ -47,25 +46,9 @@ impl GraphCreatorBase for FocusedGraph {
         let conn = establish_database_connection(&config)?;
         let db = ensure_database(&conn, &config.database)?;
 
-        // TODO: maybe move creation of collections to the respective modules
-
         // Base Nodes and Edges
-        ensure_collection::<FocusedCorpus>(&db, CollectionType::Document)?;
-        ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge)?;
-
-        // ============================== Coper ==============================
-        // Nodes
-        ensure_collection::<Coper>(&db, CollectionType::Document)?;
-        ensure_collection::<CoperAPK>(&db, CollectionType::Document)?;
-        ensure_collection::<CoperELF>(&db, CollectionType::Document)?;
-
-        // Edges
-        ensure_collection::<CoperHasAPK>(&db, CollectionType::Edge)?;
-        ensure_collection::<CoperHasELF>(&db, CollectionType::Edge)?;
-
-        // ============================== Other Family ==============================
-        // Nodes
-        // Edges
+        ensure_collection::<FocusedCorpus>(&db, CollectionType::Document, None)?;
+        ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge, None)?;
 
         // create corpus node
         let corpus_node: Document<FocusedCorpus> = self
