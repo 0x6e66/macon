@@ -37,7 +37,7 @@ pub struct CoperHasELF {
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 pub struct CoperELF {
     pub sha256sum: String,
-    pub architecture: CoperELFArchitecture,
+    pub architecture: Option<CoperELFArchitecture>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
@@ -50,6 +50,18 @@ pub enum CoperELFArchitecture {
     Arm64V8a,
     #[serde(rename = "armeabi-v7a")]
     ArmEabiV7a,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+pub struct CoperHasDEX {
+    pub _key: String,
+    pub _from: String,
+    pub _to: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub struct CoperDEX {
+    pub sha256sum: String,
 }
 
 impl_edge_attributes!(CoperHasAPK);
@@ -71,6 +83,11 @@ pub fn coper_edge_definitions() -> Vec<EdgeDefinition> {
             collection: get_name::<CoperHasELF>(),
             from: vec![get_name::<CoperAPK>()],
             to: vec![get_name::<CoperELF>()],
+        },
+        EdgeDefinition {
+            collection: get_name::<CoperHasDEX>(),
+            from: vec![get_name::<CoperAPK>()],
+            to: vec![get_name::<CoperDEX>()],
         },
     ]
 }

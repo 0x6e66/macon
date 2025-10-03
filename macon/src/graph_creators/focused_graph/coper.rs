@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use arangors::{client::reqwest::ReqwestClient, collection::CollectionType, Document};
 use cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
@@ -35,24 +35,25 @@ impl FocusedGraph {
     ) -> Result<()> {
         let sha_index_fields = Some(vec!["sha256sum".into()]);
 
-        // Nodes
+        // create collections for all nodes
         ensure_collection::<Coper>(db, CollectionType::Document, None)?;
         ensure_collection::<CoperAPK>(db, CollectionType::Document, sha_index_fields.clone())?;
         ensure_collection::<CoperELF>(db, CollectionType::Document, sha_index_fields)?;
 
-        // Edges
+        // create collections for all edges
         ensure_collection::<CoperHasAPK>(db, CollectionType::Edge, None)?;
         ensure_collection::<CoperHasELF>(db, CollectionType::Edge, None)?;
 
         let main_node = self.coper_create_main_node(corpus_node, db)?;
 
         path.push("direct");
-        let rd = read_dir(&path)?;
-
-        let files: Vec<DirEntry> = rd.into_iter().filter_map(|res| res.ok()).collect();
 
         let errors: Arc<Mutex<Vec<anyhow::Error>>> = Arc::new(Mutex::new(Vec::new()));
 
+        // collect all filenames
+        let files: Vec<DirEntry> = read_dir(&path)?.filter_map(|res| res.ok()).collect();
+
+        // handle each sample
         files
             .par_iter()
             .progress()
@@ -90,7 +91,7 @@ impl FocusedGraph {
 
         let UpsertResult {
             document: main_node,
-            created,
+            created: _,
         } = self.upsert_node::<Coper>(coper, "name".to_string(), "Coper".to_string(), db)?;
 
         self.upsert_edge::<FocusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node, db)?;
@@ -104,35 +105,54 @@ impl FocusedGraph {
         main_node: &Document<Coper>,
         db: &Database,
     ) -> Result<()> {
-        // check if sample is APK or ELF
-        // Planned workflow:
-        //  1. Determine if sample is APK or ELF
-        //  2. If APK
-        //      2.1 upsert APK node
-        //      2.2 extract ELFs
-        //      2.3 if ELFs in DB
-        //          - check if APK is ghost node
-        //          - if GN remove GN
-        //      2.4 upsert ELF nodes
-        //      2.5 create edges
-        //
-        //  3. If ELF
-        //      3.1 if ELF is in DB
-        //          - continue
-        //      3.2 if ELF not in DB
-        //          - create ghost APK node
-        //          - upsert ELF
-        //          - create edge
-
-        // determine if sample is APK or ELF
-
-        // sample is APK
-        let apk_node = self.coper_create_apk_node(sample_data, db)?;
-        self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
-
-        // TODO:sample is ELF
+        // TODO: Implement other sample types
+        match detect_sample_type(sample_data) {
+            Some(CoperSampleType::APK) => {
+                let apk_node = self.coper_create_apk_node(sample_data, db)?;
+                self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
+            }
+            Some(CoperSampleType::ELF) => {
+                let _ = self.coper_create_elf_node(sample_data, None, db)?;
+            }
+            Some(CoperSampleType::DEX) => {
+                todo!();
+            }
+            Some(CoperSampleType::JAR) => {
+                todo!();
+            }
+            None => {
+                let digest = digest(sample_data);
+                return Err(anyhow!("Sample type of the sample with the SHA-256 hash '{digest}' could not be detected"));
+            }
+        }
 
         Ok(())
+    }
+
+    fn coper_create_elf_node(
+        &self,
+        sample_data: &[u8],
+        mut architecture: Option<CoperELFArchitecture>,
+        db: &Database,
+    ) -> Result<Document<CoperELF>> {
+        let sha256sum = digest(sample_data);
+
+        // try to determine architecture (eg. when elf was not extracted from apk)
+        if architecture.is_none() {
+            architecture = detect_elf_architecture(sample_data);
+        }
+
+        let elf_data = CoperELF {
+            sha256sum: sha256sum.clone(),
+            architecture,
+        };
+
+        let UpsertResult {
+            document: elf_node,
+            created: _,
+        } = self.upsert_node::<CoperELF>(elf_data, "sha256sum".to_string(), sha256sum, db)?;
+
+        Ok(elf_node)
     }
 
     fn coper_create_apk_node(
@@ -154,21 +174,16 @@ impl FocusedGraph {
             created,
         } = self.upsert_node::<CoperAPK>(apk_data, "sha256sum".to_string(), sha256sum, db)?;
 
+        // Sample was not created => sample was already present in DB
+        // Can be aborted here
+        if !created {
+            return Ok(apk_node);
+        }
+
         // create and upsert elf nodes and edges
         if let Ok(res) = apk_analysis_result {
-            for (sha256sum, architecture) in res.elfs {
-                let elf_data = CoperELF {
-                    architecture,
-                    sha256sum: sha256sum.clone(),
-                };
-
-                // TODO: if ELF is already in DB, handle potential ghost node
-
-                let UpsertResult {
-                    document: elf_node,
-                    created,
-                } =
-                    self.upsert_node::<CoperELF>(elf_data, "sha256sum".to_string(), sha256sum, db)?;
+            for (sample_data, architecture) in res.elfs {
+                let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture), db)?;
                 self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node, db)?;
             }
         }
@@ -177,12 +192,64 @@ impl FocusedGraph {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
+enum CoperSampleType {
+    APK,
+    ELF,
+    DEX,
+    JAR,
+}
+
+fn detect_elf_architecture(sample_data: &[u8]) -> Option<CoperELFArchitecture> {
+    let endianness = sample_data[5];
+
+    let architecture;
+
+    // Little Endian
+    if endianness == 1 {
+        architecture = sample_data[18];
+    // Big Endian
+    } else if endianness == 2 {
+        architecture = sample_data[19];
+    } else {
+        return None;
+    }
+
+    match architecture {
+        0x03 => Some(CoperELFArchitecture::X86),
+        0x28 => Some(CoperELFArchitecture::ArmEabiV7a),
+        0x3e => Some(CoperELFArchitecture::X86_64),
+        0xb7 => Some(CoperELFArchitecture::Arm64V8a),
+        _ => None,
+    }
+}
+
+fn detect_sample_type(sample_data: &[u8]) -> Option<CoperSampleType> {
+    // check magic bytes at start of file
+
+    // APK or JAR
+    if sample_data.starts_with(&[0x50, 0x4B]) {
+        // TODO: Implement distinction between APK and JAR
+        return Some(CoperSampleType::APK);
+    }
+    // DEX
+    else if sample_data.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && sample_data[7] == 0 {
+        return Some(CoperSampleType::DEX);
+    // ELF
+    } else if sample_data.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
+        return Some(CoperSampleType::ELF);
+    }
+
+    None
+}
+
 struct APKAnalysisResult {
     is_cut: bool,
-    elfs: Vec<(String, CoperELFArchitecture)>,
+    elfs: Vec<(Vec<u8>, CoperELFArchitecture)>,
 }
 
 fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
+    // open ziparchive
     let cursor = Cursor::new(sample_data);
     let Ok(mut archive) = ZipArchive::new(cursor) else {
         return Ok(APKAnalysisResult {
@@ -193,12 +260,14 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
 
     let mut elfs = vec![];
 
+    // extract all filenames in the lib/ directory
     let filenames: Vec<String> = archive
         .file_names()
         .filter(|filename| filename.starts_with("lib/"))
         .map(|s| s.to_owned())
         .collect();
 
+    // extract contents of each file and their architecture
     for filename in filenames {
         if let Ok(mut zipfile) = archive.by_name(&filename) {
             // read data of elf to buffer
@@ -221,8 +290,7 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
                 continue;
             }
 
-            let digest = digest(&buff);
-            elfs.push((digest, architecture));
+            elfs.push((buff, architecture));
         }
     }
 
