@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
+use arangors::{
+    AqlQuery, ClientError, Document, client::reqwest::ReqwestClient,
+    document::options::InsertOptions, graph::EdgeDefinition,
+};
+use schemars::JsonSchema;
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::{
     prelude::*,
     utils::{config::Config, get_name, handle_document_response},
 };
-
-use arangors::{
-    client::reqwest::ReqwestClient, document::options::InsertOptions, graph::EdgeDefinition,
-    AqlQuery, ClientError, Document,
-};
-use schemars::JsonSchema;
-use serde::{de::DeserializeOwned, Serialize};
 
 type Database = arangors::Database<ReqwestClient>;
 

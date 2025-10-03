@@ -1,22 +1,20 @@
 pub mod config;
 
 use arangors::{
+    Connection, Document,
     client::reqwest::ReqwestClient,
     collection::{
-        options::{CreateOptions, CreateParameters},
         CollectionType,
+        options::{CreateOptions, CreateParameters},
     },
-    document::{response::DocumentResponse, Header},
+    document::{Header, response::DocumentResponse},
     graph::{EdgeDefinition, Graph},
     index::{Index, IndexSettings},
-    Connection, Document,
 };
 use schemars::JsonSchema;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::prelude::*;
-
-use config::Config;
+use crate::{prelude::*, utils::config::Config};
 
 type Database = arangors::Database<ReqwestClient>;
 type Collection = arangors::Collection<ReqwestClient>;
