@@ -1,8 +1,8 @@
 pub mod coper;
 pub mod nodes;
 
-use anyhow::{anyhow, Result};
-use arangors::{collection::CollectionType, graph::EdgeDefinition, Document};
+use anyhow::{Result, anyhow};
+use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
 use cag::{
     base_creator::GraphCreatorBase,
     utils::{
@@ -12,7 +12,7 @@ use cag::{
 };
 
 use crate::graph_creators::focused_graph::nodes::{
-    coper::coper_edge_definitions, FocusedCorpus, HasMalwareFamily,
+    FocusedCorpus, HasMalwareFamily, coper::coper_edge_definitions,
 };
 
 pub struct FocusedGraph;

@@ -66,6 +66,7 @@ pub struct CoperDEX {
 
 impl_edge_attributes!(CoperHasAPK);
 impl_edge_attributes!(CoperHasELF);
+impl_edge_attributes!(CoperHasDEX);
 
 pub fn coper_edge_definitions() -> Vec<EdgeDefinition> {
     vec![

@@ -1,12 +1,12 @@
 use std::{
-    fs::{read_dir, DirEntry},
+    fs::{DirEntry, read_dir},
     io::{Cursor, Read},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, Result};
-use arangors::{client::reqwest::ReqwestClient, collection::CollectionType, Document};
+use anyhow::{Result, anyhow};
+use arangors::{Document, client::reqwest::ReqwestClient, collection::CollectionType};
 use cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_collection,
@@ -17,11 +17,14 @@ use sha256::digest;
 use zip::ZipArchive;
 
 use crate::graph_creators::focused_graph::{
-    nodes::{
-        coper::{Coper, CoperAPK, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasELF},
-        FocusedCorpus, HasMalwareFamily,
-    },
     FocusedGraph,
+    nodes::{
+        FocusedCorpus, HasMalwareFamily,
+        coper::{
+            Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasDEX,
+            CoperHasELF,
+        },
+    },
 };
 
 type Database = arangors::Database<ReqwestClient>;
@@ -38,11 +41,13 @@ impl FocusedGraph {
         // create collections for all nodes
         ensure_collection::<Coper>(db, CollectionType::Document, None)?;
         ensure_collection::<CoperAPK>(db, CollectionType::Document, sha_index_fields.clone())?;
-        ensure_collection::<CoperELF>(db, CollectionType::Document, sha_index_fields)?;
+        ensure_collection::<CoperELF>(db, CollectionType::Document, sha_index_fields.clone())?;
+        ensure_collection::<CoperDEX>(db, CollectionType::Document, sha_index_fields)?;
 
         // create collections for all edges
         ensure_collection::<CoperHasAPK>(db, CollectionType::Edge, None)?;
         ensure_collection::<CoperHasELF>(db, CollectionType::Edge, None)?;
+        ensure_collection::<CoperHasDEX>(db, CollectionType::Edge, None)?;
 
         let main_node = self.coper_create_main_node(corpus_node, db)?;
 
@@ -115,14 +120,16 @@ impl FocusedGraph {
                 let _ = self.coper_create_elf_node(sample_data, None, db)?;
             }
             Some(CoperSampleType::DEX) => {
-                todo!();
+                let _ = self.coper_create_dex_node(sample_data, db)?;
             }
             Some(CoperSampleType::JAR) => {
                 todo!();
             }
             None => {
                 let digest = digest(sample_data);
-                return Err(anyhow!("Sample type of the sample with the SHA-256 hash '{digest}' could not be detected"));
+                return Err(anyhow!(
+                    "Sample type of the sample with the SHA-256 hash '{digest}' could not be detected"
+                ));
             }
         }
 
@@ -186,18 +193,33 @@ impl FocusedGraph {
                 let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture), db)?;
                 self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node, db)?;
             }
+
+            for sample_data in res.dexs {
+                let dex_node = self.coper_create_dex_node(&sample_data, db)?;
+                self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_node, &dex_node, db)?;
+            }
         }
 
         Ok(apk_node)
     }
-}
 
-#[allow(clippy::upper_case_acronyms)]
-enum CoperSampleType {
-    APK,
-    ELF,
-    DEX,
-    JAR,
+    fn coper_create_dex_node(
+        &self,
+        sample_data: &[u8],
+        db: &Database,
+    ) -> Result<Document<CoperDEX>> {
+        let sha256sum = digest(sample_data);
+        let dex_data = CoperDEX {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: dex_node,
+            created: _,
+        } = self.upsert_node::<CoperDEX>(dex_data, "sha256sum".to_string(), sha256sum, db)?;
+
+        Ok(dex_node)
+    }
 }
 
 fn detect_elf_architecture(sample_data: &[u8]) -> Option<CoperELFArchitecture> {
@@ -224,6 +246,14 @@ fn detect_elf_architecture(sample_data: &[u8]) -> Option<CoperELFArchitecture> {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
+enum CoperSampleType {
+    APK,
+    ELF,
+    DEX,
+    JAR,
+}
+
 fn detect_sample_type(sample_data: &[u8]) -> Option<CoperSampleType> {
     // check magic bytes at start of file
 
@@ -246,6 +276,7 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<CoperSampleType> {
 struct APKAnalysisResult {
     is_cut: bool,
     elfs: Vec<(Vec<u8>, CoperELFArchitecture)>,
+    dexs: Vec<Vec<u8>>,
 }
 
 fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
@@ -255,21 +286,23 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
         return Ok(APKAnalysisResult {
             is_cut: true,
             elfs: vec![],
+            dexs: vec![],
         });
     };
 
     let mut elfs = vec![];
+    let mut dexs = vec![];
 
     // extract all filenames in the lib/ directory
-    let filenames: Vec<String> = archive
+    let elf_files: Vec<String> = archive
         .file_names()
         .filter(|filename| filename.starts_with("lib/"))
         .map(|s| s.to_owned())
         .collect();
 
-    // extract contents of each file and their architecture
-    for filename in filenames {
-        if let Ok(mut zipfile) = archive.by_name(&filename) {
+    // extract contents of each elf file and their architecture
+    for elf_file in elf_files {
+        if let Ok(mut zipfile) = archive.by_name(&elf_file) {
             // read data of elf to buffer
             let mut buff = Vec::with_capacity(zipfile.size() as usize);
             if zipfile.read_to_end(&mut buff).is_err() {
@@ -278,13 +311,13 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
 
             let architecture: CoperELFArchitecture;
 
-            if filename.starts_with("lib/armeabi-v7a/") {
+            if elf_file.starts_with("lib/armeabi-v7a/") {
                 architecture = CoperELFArchitecture::ArmEabiV7a;
-            } else if filename.starts_with("lib/arm64-v8a/") {
+            } else if elf_file.starts_with("lib/arm64-v8a/") {
                 architecture = CoperELFArchitecture::Arm64V8a;
-            } else if filename.starts_with("lib/x86_64/") {
+            } else if elf_file.starts_with("lib/x86_64/") {
                 architecture = CoperELFArchitecture::X86_64;
-            } else if filename.starts_with("lib/x86/") {
+            } else if elf_file.starts_with("lib/x86/") {
                 architecture = CoperELFArchitecture::X86;
             } else {
                 continue;
@@ -294,8 +327,29 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
         }
     }
 
+    // extract all filenames that end with .dex
+    let dex_files: Vec<String> = archive
+        .file_names()
+        .filter(|filename| filename.ends_with(".dex"))
+        .map(|s| s.to_owned())
+        .collect();
+
+    // extract all .dex files
+    for dex_file in dex_files {
+        if let Ok(mut zipfile) = archive.by_name(&dex_file) {
+            // read data of dex to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            dexs.push(buff);
+        }
+    }
+
     Ok(APKAnalysisResult {
         is_cut: false,
         elfs,
+        dexs,
     })
 }
