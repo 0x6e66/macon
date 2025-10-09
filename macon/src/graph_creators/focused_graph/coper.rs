@@ -111,7 +111,6 @@ impl FocusedGraph {
         main_node: &Document<Coper>,
         db: &Database,
     ) -> Result<()> {
-        // TODO: Implement other sample types
         match detect_sample_type(sample_data) {
             Some(CoperSampleType::APK) => {
                 let apk_node = self.coper_create_apk_node(sample_data, db)?;
@@ -122,9 +121,6 @@ impl FocusedGraph {
             }
             Some(CoperSampleType::DEX) => {
                 let _ = self.coper_create_dex_node(sample_data, db)?;
-            }
-            Some(CoperSampleType::JAR) => {
-                todo!();
             }
             None => {
                 return Err(anyhow!(
@@ -251,15 +247,13 @@ enum CoperSampleType {
     APK,
     ELF,
     DEX,
-    JAR,
 }
 
 fn detect_sample_type(sample_data: &[u8]) -> Option<CoperSampleType> {
     // check magic bytes at start of file
 
-    // APK or JAR
+    // APK
     if sample_data.starts_with(&[0x50, 0x4B]) {
-        // TODO: Implement distinction between APK and JAR
         return Some(CoperSampleType::APK);
     }
     // DEX
