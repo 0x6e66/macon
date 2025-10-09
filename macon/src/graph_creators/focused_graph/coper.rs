@@ -59,10 +59,17 @@ impl FocusedGraph {
                 Ok(mut file) => {
                     let mut buf = Vec::new();
                     match file.read_to_end(&mut buf) {
-                        Ok(_) => match self.coper_handle_sample(&buf, &main_node, db) {
-                            Ok(_) => (),
-                            Err(e) => errors.lock().unwrap().push(e),
-                        },
+                        Ok(_) => {
+                            match self.coper_handle_sample(
+                                &format!("{entry:?}"),
+                                &buf,
+                                &main_node,
+                                db,
+                            ) {
+                                Ok(_) => (),
+                                Err(e) => errors.lock().unwrap().push(e),
+                            }
+                        }
                         Err(e) => errors.lock().unwrap().push(e.into()),
                     }
                 }
@@ -99,6 +106,7 @@ impl FocusedGraph {
 
     fn coper_handle_sample(
         &self,
+        sample_filename: &str,
         sample_data: &[u8],
         main_node: &Document<Coper>,
         db: &Database,
@@ -119,10 +127,8 @@ impl FocusedGraph {
                 todo!();
             }
             None => {
-                let digest = digest(sample_data);
-
                 return Err(anyhow!(
-                    "Sample type of the sample with the SHA-256 hash '{digest}' could not be detected."
+                    "Sample type of the sample {sample_filename} could not be detected."
                 ));
             }
         }
