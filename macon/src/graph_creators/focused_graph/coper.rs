@@ -294,6 +294,34 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
         .map(|s| s.to_owned())
         .collect();
 
+    // extract all filenames that end with .apk
+    // some samples are wrapped with tanglebot this tries
+    // to get the inner apk and analyse is as well
+    let inner_apks: Vec<String> = archive
+        .file_names()
+        .filter(|filename| filename.ends_with(".apk"))
+        .map(|s| s.to_owned())
+        .collect();
+
+    for apk in inner_apks {
+        let digest = digest(sample_data);
+        println!("{digest}: {apk}");
+
+        if let Ok(mut zipfile) = archive.by_name(&apk) {
+            // read data of inner apk to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            // TODO: check if file is really a apk file
+            // - use magic bytes
+
+            // TODO: handle inner apks
+            // - figure out how to get in to "initial" loop of adding a new sample
+        }
+    }
+
     // extract contents of each elf file and their architecture
     for elf_file in elf_files {
         if let Ok(mut zipfile) = archive.by_name(&elf_file) {
@@ -302,6 +330,9 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
             if zipfile.read_to_end(&mut buff).is_err() {
                 continue;
             }
+
+            // TODO: check if file is really a elf file
+            // - use magic bytes
 
             let architecture: CoperELFArchitecture;
 
@@ -336,6 +367,9 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
             if zipfile.read_to_end(&mut buff).is_err() {
                 continue;
             }
+
+            // TODO: check if file is really a .dex file
+            // - use magic bytes
 
             dexs.push(buff);
         }
