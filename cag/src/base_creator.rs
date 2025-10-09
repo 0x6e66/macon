@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 
 use arangors::{
-    AqlQuery, ClientError, Document, client::reqwest::ReqwestClient,
-    document::options::InsertOptions, graph::EdgeDefinition,
+    AqlQuery, ClientError, Document, document::options::InsertOptions, graph::EdgeDefinition,
 };
 use schemars::JsonSchema;
 use serde::{Serialize, de::DeserializeOwned};
@@ -12,20 +11,21 @@ use crate::{
     utils::{config::Config, get_name, handle_document_response},
 };
 
-type Database = arangors::Database<ReqwestClient>;
-
 pub struct UpsertResult<CollType> {
     pub document: Document<CollType>,
     pub created: bool,
 }
 
 pub trait GraphCreatorBase {
-    fn init(
+    /// Initialize the connection and database. Has to return Database and the created corpus_node
+    fn init<T>(
         &self,
         config: Config,
-        data_path: String,
+        corpus_node_data: T,
         edge_definitions: Vec<EdgeDefinition>,
-    ) -> Result<()>;
+    ) -> Result<(Database, Document<T>)>
+    where
+        T: DeserializeOwned + Serialize + Clone + JsonSchema + Debug;
 
     fn create_vertex<CollType>(&self, data: CollType, db: &Database) -> Result<Document<CollType>>
     where

@@ -2,7 +2,6 @@ pub mod config;
 
 use arangors::{
     Connection, Document,
-    client::reqwest::ReqwestClient,
     collection::{
         CollectionType,
         options::{CreateOptions, CreateParameters},
@@ -15,9 +14,6 @@ use schemars::JsonSchema;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{prelude::*, utils::config::Config};
-
-type Database = arangors::Database<ReqwestClient>;
-type Collection = arangors::Collection<ReqwestClient>;
 
 pub fn establish_database_connection(config: &Config) -> Result<Connection> {
     match Connection::establish_basic_auth(&config.url, &config.user, &config.password) {
