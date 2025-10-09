@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.99"
 arangors = { version = "0.6.0", features = ["blocking", "reqwest_blocking"], default-features = false }
 cag = {path = "../cag/"}
+clap = { version = "4.5.48", features = ["derive"] }
 indicatif = { version = "0.18.0", features = ["rayon"] }
 rayon = "1.11.0"
 schemars = "0.8.16"

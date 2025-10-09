@@ -1,14 +1,14 @@
 use std::{
-    fs::{DirEntry, read_dir},
     io::{Cursor, Read},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{Result, anyhow};
-use arangors::{Document, client::reqwest::ReqwestClient, collection::CollectionType};
+use arangors::{Document, collection::CollectionType};
 use cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
+    prelude::Database,
     utils::ensure_collection,
 };
 use indicatif::ParallelProgressIterator;
@@ -27,12 +27,10 @@ use crate::graph_creators::focused_graph::{
     },
 };
 
-type Database = arangors::Database<ReqwestClient>;
-
 impl FocusedGraph {
     pub fn coper_main(
         &self,
-        mut path: PathBuf,
+        files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
         db: &Database,
     ) -> Result<()> {
@@ -51,29 +49,24 @@ impl FocusedGraph {
 
         let main_node = self.coper_create_main_node(corpus_node, db)?;
 
-        path.push("direct");
-
         let errors: Arc<Mutex<Vec<anyhow::Error>>> = Arc::new(Mutex::new(Vec::new()));
-
-        // collect all filenames
-        let files: Vec<DirEntry> = read_dir(&path)?.filter_map(|res| res.ok()).collect();
 
         // handle each sample
         files
             .par_iter()
             .progress()
-            .for_each(|entry| match std::fs::File::open(entry.path()) {
-                Err(e) => errors.lock().unwrap().push(e.into()),
+            .for_each(|entry| match std::fs::File::open(entry) {
                 Ok(mut file) => {
                     let mut buf = Vec::new();
                     match file.read_to_end(&mut buf) {
-                        Err(e) => errors.lock().unwrap().push(e.into()),
                         Ok(_) => match self.coper_handle_sample(&buf, &main_node, db) {
                             Ok(_) => (),
                             Err(e) => errors.lock().unwrap().push(e),
                         },
+                        Err(e) => errors.lock().unwrap().push(e.into()),
                     }
                 }
+                Err(e) => errors.lock().unwrap().push(e.into()),
             });
 
         for e in errors.lock().unwrap().iter() {
@@ -127,8 +120,9 @@ impl FocusedGraph {
             }
             None => {
                 let digest = digest(sample_data);
+
                 return Err(anyhow!(
-                    "Sample type of the sample with the SHA-256 hash '{digest}' could not be detected"
+                    "Sample type of the sample with the SHA-256 hash '{digest}' could not be detected."
                 ));
             }
         }

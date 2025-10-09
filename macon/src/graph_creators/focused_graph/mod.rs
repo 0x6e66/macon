@@ -1,23 +1,32 @@
 pub mod coper;
 pub mod nodes;
 
-use anyhow::{Result, anyhow};
+use std::fmt::Debug;
+use std::path::PathBuf;
+
+use anyhow::Result;
 use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
 use cag::{
     base_creator::GraphCreatorBase,
+    prelude::Database,
     utils::{
         config::Config, ensure_collection, ensure_database, ensure_graph,
-        establish_database_connection,
+        establish_database_connection, get_name,
     },
 };
+use schemars::JsonSchema;
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::graph_creators::focused_graph::nodes::{
-    FocusedCorpus, HasMalwareFamily, coper::coper_edge_definitions,
+use crate::{
+    classifier::MalwareFamiliy,
+    graph_creators::focused_graph::nodes::{
+        FocusedCorpus, HasMalwareFamily, coper::coper_edge_definitions,
+    },
 };
 
 pub struct FocusedGraph;
 
-pub fn focused_graph_main() -> Result<()> {
+pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<()> {
     let edge_definitions: Vec<EdgeDefinition> = vec![coper_edge_definitions()]
         .into_iter()
         .flatten()
@@ -31,18 +40,30 @@ pub fn focused_graph_main() -> Result<()> {
         ..Default::default()
     };
 
-    gc.init(config, "samples/".into(), edge_definitions)?;
+    let corpus_data = FocusedCorpus {
+        name: "FocusedCorpus".to_string(),
+        display_name: "FocusedCorpus".to_string(),
+    };
+
+    let (db, corpus_node) = gc.init::<FocusedCorpus>(config, corpus_data, edge_definitions)?;
+
+    match family {
+        MalwareFamiliy::Coper => gc.coper_main(files, &corpus_node, &db)?,
+    }
 
     Ok(())
 }
 
 impl GraphCreatorBase for FocusedGraph {
-    fn init(
+    fn init<T>(
         &self,
         config: cag::utils::config::Config,
-        data_path: String,
+        corpus_node_data: T,
         edge_definitions: Vec<EdgeDefinition>,
-    ) -> cag::prelude::Result<()> {
+    ) -> cag::prelude::Result<(Database, Document<T>)>
+    where
+        T: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
+    {
         let conn = establish_database_connection(&config)?;
         let db = ensure_database(&conn, &config.database)?;
 
@@ -50,37 +71,13 @@ impl GraphCreatorBase for FocusedGraph {
         ensure_collection::<FocusedCorpus>(&db, CollectionType::Document, None)?;
         ensure_collection::<HasMalwareFamily>(&db, CollectionType::Edge, None)?;
 
-        // create corpus node
-        let corpus_node: Document<FocusedCorpus> = self
-            .upsert_node::<FocusedCorpus>(
-                FocusedCorpus {
-                    name: "FocusedCorpus".to_string(),
-                    display_name: "FocusedCorpus".to_string(),
-                },
-                "name".to_string(),
-                "FocusedCorpus".to_string(),
-                &db,
-            )?
-            .document;
-
-        // Iterate over data path and select graph creation by family
-        let rd = std::fs::read_dir(data_path).map_err(anyhow::Error::new)?;
-        for entry in rd {
-            let entry = entry.map_err(anyhow::Error::new)?;
-
-            let file_name = entry
-                .file_name()
-                .into_string()
-                .map_err(|e| anyhow!("{e:?}"))?;
-
-            // select graph creation by family
-            if file_name.as_str() == "apk.coper" {
-                self.coper_main(entry.path(), &corpus_node, &db)?;
-            }
-        }
-
         let _ = ensure_graph(&db, &config.graph, edge_definitions)?;
 
-        Ok(())
+        // create corpus node
+        let corpus_node: Document<T> = self
+            .upsert_node::<T>(corpus_node_data, "name".to_string(), get_name::<T>(), &db)?
+            .document;
+
+        Ok((db, corpus_node))
     }
 }

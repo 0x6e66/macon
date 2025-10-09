@@ -1,9 +1,23 @@
+mod classifier;
+mod cli;
 mod graph_creators;
 
 use anyhow::Result;
+use clap::Parser;
 
-use crate::graph_creators::focused_graph::focused_graph_main;
+use crate::{
+    cli::{Cli, FocusedArgs},
+    graph_creators::focused_graph::focused_graph_main,
+};
 
 fn main() -> Result<()> {
-    focused_graph_main()
+    let cli = Cli::parse();
+
+    match cli.command {
+        cli::Commands::Focused(FocusedArgs { files, family }) => {
+            focused_graph_main(&files, family)?
+        }
+    }
+
+    Ok(())
 }
