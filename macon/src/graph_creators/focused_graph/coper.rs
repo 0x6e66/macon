@@ -8,7 +8,6 @@ use anyhow::{Result, anyhow};
 use arangors::{Document, collection::CollectionType};
 use cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    prelude::Database,
     utils::ensure_collection,
 };
 use indicatif::ParallelProgressIterator;
@@ -32,9 +31,10 @@ impl FocusedGraph {
         &self,
         files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
-        db: &Database,
     ) -> Result<()> {
         let sha_index_fields = Some(vec!["sha256sum".into()]);
+
+        let db = self.get_db();
 
         // create collections for all nodes
         ensure_collection::<Coper>(db, CollectionType::Document, None)?;
@@ -47,7 +47,7 @@ impl FocusedGraph {
         ensure_collection::<CoperHasELF>(db, CollectionType::Edge, None)?;
         ensure_collection::<CoperHasDEX>(db, CollectionType::Edge, None)?;
 
-        let main_node = self.coper_create_main_node(corpus_node, db)?;
+        let main_node = self.coper_create_main_node(corpus_node)?;
 
         let errors: Arc<Mutex<Vec<anyhow::Error>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -60,12 +60,8 @@ impl FocusedGraph {
                     let mut buf = Vec::new();
                     match file.read_to_end(&mut buf) {
                         Ok(_) => {
-                            match self.coper_handle_sample(
-                                &format!("{entry:?}"),
-                                &buf,
-                                &main_node,
-                                db,
-                            ) {
+                            match self.coper_handle_sample(&format!("{entry:?}"), &buf, &main_node)
+                            {
                                 Ok(_) => (),
                                 Err(e) => errors.lock().unwrap().push(e),
                             }
@@ -87,7 +83,6 @@ impl FocusedGraph {
     fn coper_create_main_node(
         &self,
         corpus_node: &Document<FocusedCorpus>,
-        db: &Database,
     ) -> Result<Document<Coper>> {
         let coper = Coper {
             name: "Coper".to_string(),
@@ -97,9 +92,9 @@ impl FocusedGraph {
         let UpsertResult {
             document: main_node,
             created: _,
-        } = self.upsert_node::<Coper>(coper, "name".to_string(), "Coper".to_string(), db)?;
+        } = self.upsert_node::<Coper>(coper, "name", "Coper")?;
 
-        self.upsert_edge::<FocusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node, db)?;
+        self.upsert_edge::<FocusedCorpus, Coper, HasMalwareFamily>(corpus_node, &main_node)?;
 
         Ok(main_node)
     }
@@ -109,18 +104,17 @@ impl FocusedGraph {
         sample_filename: &str,
         sample_data: &[u8],
         main_node: &Document<Coper>,
-        db: &Database,
     ) -> Result<()> {
         match detect_sample_type(sample_data) {
             Some(CoperSampleType::APK) => {
-                let apk_node = self.coper_create_apk_node(sample_data, db)?;
-                self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node, db)?;
+                let apk_node = self.coper_create_apk_node(sample_data)?;
+                self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node)?;
             }
             Some(CoperSampleType::ELF) => {
-                let _ = self.coper_create_elf_node(sample_data, None, db)?;
+                let _ = self.coper_create_elf_node(sample_data, None)?;
             }
             Some(CoperSampleType::DEX) => {
-                let _ = self.coper_create_dex_node(sample_data, db)?;
+                let _ = self.coper_create_dex_node(sample_data)?;
             }
             None => {
                 return Err(anyhow!(
@@ -136,7 +130,6 @@ impl FocusedGraph {
         &self,
         sample_data: &[u8],
         mut architecture: Option<CoperELFArchitecture>,
-        db: &Database,
     ) -> Result<Document<CoperELF>> {
         let sha256sum = digest(sample_data);
 
@@ -153,16 +146,12 @@ impl FocusedGraph {
         let UpsertResult {
             document: elf_node,
             created: _,
-        } = self.upsert_node::<CoperELF>(elf_data, "sha256sum".to_string(), sha256sum, db)?;
+        } = self.upsert_node::<CoperELF>(elf_data, "sha256sum", &sha256sum)?;
 
         Ok(elf_node)
     }
 
-    fn coper_create_apk_node(
-        &self,
-        sample_data: &[u8],
-        db: &Database,
-    ) -> Result<Document<CoperAPK>> {
+    fn coper_create_apk_node(&self, sample_data: &[u8]) -> Result<Document<CoperAPK>> {
         // extract elfs
         let apk_analysis_result = analyse_apk(sample_data);
 
@@ -175,7 +164,7 @@ impl FocusedGraph {
         let UpsertResult {
             document: apk_node,
             created,
-        } = self.upsert_node::<CoperAPK>(apk_data, "sha256sum".to_string(), sha256sum, db)?;
+        } = self.upsert_node::<CoperAPK>(apk_data, "sha256sum", &sha256sum)?;
 
         // Sample was not created => sample was already present in DB
         // Can be aborted here
@@ -186,24 +175,20 @@ impl FocusedGraph {
         // create and upsert elf nodes and edges
         if let Ok(res) = apk_analysis_result {
             for (sample_data, architecture) in res.elfs {
-                let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture), db)?;
-                self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node, db)?;
+                let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture))?;
+                self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node)?;
             }
 
             for sample_data in res.dexs {
-                let dex_node = self.coper_create_dex_node(&sample_data, db)?;
-                self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_node, &dex_node, db)?;
+                let dex_node = self.coper_create_dex_node(&sample_data)?;
+                self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_node, &dex_node)?;
             }
         }
 
         Ok(apk_node)
     }
 
-    fn coper_create_dex_node(
-        &self,
-        sample_data: &[u8],
-        db: &Database,
-    ) -> Result<Document<CoperDEX>> {
+    fn coper_create_dex_node(&self, sample_data: &[u8]) -> Result<Document<CoperDEX>> {
         let sha256sum = digest(sample_data);
         let dex_data = CoperDEX {
             sha256sum: sha256sum.clone(),
@@ -212,7 +197,7 @@ impl FocusedGraph {
         let UpsertResult {
             document: dex_node,
             created: _,
-        } = self.upsert_node::<CoperDEX>(dex_data, "sha256sum".to_string(), sha256sum, db)?;
+        } = self.upsert_node::<CoperDEX>(dex_data, "sha256sum", &sha256sum)?;
 
         Ok(dex_node)
     }
