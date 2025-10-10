@@ -23,15 +23,19 @@ pub trait GraphCreatorBase {
         config: Config,
         corpus_node_data: T,
         edge_definitions: Vec<EdgeDefinition>,
-    ) -> Result<(Database, Document<T>)>
+    ) -> Result<Document<T>>
     where
         T: DeserializeOwned + Serialize + Clone + JsonSchema + Debug;
 
-    fn create_vertex<CollType>(&self, data: CollType, db: &Database) -> Result<Document<CollType>>
+    fn get_db(&self) -> &Database;
+
+    fn create_vertex<CollType>(&self, data: CollType) -> Result<Document<CollType>>
     where
         CollType: DeserializeOwned + Serialize + Clone + JsonSchema,
     {
         let collection_name = get_name::<CollType>();
+
+        let db = self.get_db();
         let coll = db.collection(&collection_name)?;
 
         let doc_res = coll.create_document::<CollType>(
@@ -49,19 +53,18 @@ pub trait GraphCreatorBase {
     fn upsert_node<CollType>(
         &self,
         data: CollType,
-        alt_key: String,
-        alt_val: String,
-        db: &Database,
+        alt_key: &str,
+        alt_val: &str,
     ) -> Result<UpsertResult<CollType>>
     where
         CollType: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
     {
         // check if document is already in DB
-        match self.get_document::<CollType>(alt_key, alt_val, db) {
+        match self.get_document::<CollType>(alt_key, alt_val) {
             // document is not in DB
             Err(Error::DocumentNotFound(_)) => {
                 // create new document in collection `CollType`
-                let doc: Document<CollType> = self.create_vertex::<CollType>(data, db)?;
+                let doc: Document<CollType> = self.create_vertex::<CollType>(data)?;
 
                 // return new document
                 Ok(UpsertResult {
@@ -83,12 +86,7 @@ pub trait GraphCreatorBase {
 
     /// Searches for a document in collection `CollType` with the key, value combination alt_key,
     /// alt_val
-    fn get_document<CollType>(
-        &self,
-        alt_key: String,
-        alt_val: String,
-        db: &Database,
-    ) -> Result<Document<CollType>>
+    fn get_document<CollType>(&self, alt_key: &str, alt_val: &str) -> Result<Document<CollType>>
     where
         CollType: DeserializeOwned + JsonSchema,
     {
@@ -97,9 +95,11 @@ pub trait GraphCreatorBase {
         let aql = AqlQuery::builder()
             .query("for d in @@collection_name filter d.@alt_key == @alt_val limit 1 return d")
             .bind_var("@collection_name", collection_name)
-            .bind_var("alt_key", alt_key.clone())
-            .bind_var("alt_val", alt_val.clone())
+            .bind_var("alt_key", alt_key)
+            .bind_var("alt_val", alt_val)
             .build();
+
+        let db = self.get_db();
 
         let mut result: Vec<Document<CollType>> = db.aql_query(aql)?;
 
@@ -115,7 +115,6 @@ pub trait GraphCreatorBase {
         &self,
         from_doc: &Document<FromType>,
         to_doc: &Document<ToType>,
-        db: &Database,
     ) -> Result<Document<EdgeType>>
     where
         FromType: DeserializeOwned + Serialize + Clone,
@@ -124,6 +123,8 @@ pub trait GraphCreatorBase {
             DeserializeOwned + Serialize + Clone + JsonSchema + Debug + EdgeAttributes + Default,
     {
         let collection_name = get_name::<EdgeType>();
+
+        let db = self.get_db();
         let coll = db.collection(&collection_name)?;
 
         let mut edge = EdgeType::default();
@@ -141,7 +142,7 @@ pub trait GraphCreatorBase {
                 }
 
                 // edge is not in DB, create and return edge
-                let doc: Document<EdgeType> = self.create_vertex::<EdgeType>(edge.clone(), db)?;
+                let doc: Document<EdgeType> = self.create_vertex::<EdgeType>(edge.clone())?;
                 Ok(doc)
             }
 
