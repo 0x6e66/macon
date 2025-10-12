@@ -153,7 +153,7 @@ impl FocusedGraph {
 
     fn coper_create_apk_node(&self, sample_data: &[u8]) -> Result<Document<CoperAPK>> {
         // extract elfs
-        let apk_analysis_result = analyse_apk(sample_data);
+        let apk_analysis_result = self.analyse_apk(sample_data);
 
         let sha256sum = digest(sample_data);
         let apk_data = CoperAPK {
@@ -183,6 +183,14 @@ impl FocusedGraph {
                 let dex_node = self.coper_create_dex_node(&sample_data)?;
                 self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_node, &dex_node)?;
             }
+
+            for (sample_data, sample_filename) in res.apks {
+                // TODO: handle inner apks
+                // - figure out how to get in to "initial" loop of adding a new sample
+
+                let digest = digest(sample_data);
+                println!("{digest}: {sample_filename}");
+            }
         }
 
         Ok(apk_node)
@@ -201,6 +209,141 @@ impl FocusedGraph {
 
         Ok(dex_node)
     }
+
+    fn analyse_apk(&self, sample_data: &[u8]) -> Result<APKAnalysisResult> {
+        // open zip archive
+        let cursor = Cursor::new(sample_data);
+        let Ok(mut archive) = ZipArchive::new(cursor) else {
+            return Ok(APKAnalysisResult {
+                is_cut: true,
+                elfs: vec![],
+                dexs: vec![],
+                apks: vec![],
+            });
+        };
+
+        // extract all filenames that end with .apk
+        // some samples are wrapped with tanglebot. This tries to get the inner apk(s) and analyse them as well
+        let apk_files: Vec<String> = archive
+            .file_names()
+            .filter(|filename| filename.ends_with(".apk"))
+            .map(|s| s.to_owned())
+            .collect();
+        let apks = extract_inner_apks_from_apk(&mut archive, apk_files);
+
+        // extract all filenames in the lib/ directory
+        let elf_files: Vec<String> = archive
+            .file_names()
+            .filter(|filename| filename.starts_with("lib/"))
+            .map(|s| s.to_owned())
+            .collect();
+        let elfs = extract_elfs_from_apk(&mut archive, elf_files);
+
+        // extract all filenames that end with .dex
+        let dex_files: Vec<String> = archive
+            .file_names()
+            .filter(|filename| filename.ends_with(".dex"))
+            .map(|s| s.to_owned())
+            .collect();
+        let dexs = extract_dexs_from_apk(&mut archive, dex_files);
+
+        Ok(APKAnalysisResult {
+            is_cut: false,
+            elfs,
+            dexs,
+            apks,
+        })
+    }
+}
+
+fn extract_inner_apks_from_apk(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    apk_files: Vec<String>,
+) -> Vec<(Vec<u8>, String)> {
+    let mut apks = vec![];
+    for apk in apk_files {
+        if let Ok(mut zipfile) = archive.by_name(&apk) {
+            // read data of inner apk to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            // check if file is really a apk file
+            if !buff.starts_with(&[0x50, 0x4B]) {
+                continue;
+            }
+
+            apks.push((buff, apk));
+        }
+
+        // TODO: try again with encryption bits removed
+    }
+
+    apks
+}
+
+fn extract_elfs_from_apk(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    elf_files: Vec<String>,
+) -> Vec<(Vec<u8>, CoperELFArchitecture)> {
+    let mut elfs = vec![];
+    for elf_file in elf_files {
+        if let Ok(mut zipfile) = archive.by_name(&elf_file) {
+            // read data of elf to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            // check if file is really a elf file
+            if !buff.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
+                continue;
+            }
+
+            let architecture: CoperELFArchitecture;
+
+            if elf_file.starts_with("lib/armeabi-v7a/") {
+                architecture = CoperELFArchitecture::ArmEabiV7a;
+            } else if elf_file.starts_with("lib/arm64-v8a/") {
+                architecture = CoperELFArchitecture::Arm64V8a;
+            } else if elf_file.starts_with("lib/x86_64/") {
+                architecture = CoperELFArchitecture::X86_64;
+            } else if elf_file.starts_with("lib/x86/") {
+                architecture = CoperELFArchitecture::X86;
+            } else {
+                continue;
+            }
+
+            elfs.push((buff, architecture));
+        }
+    }
+
+    elfs
+}
+
+fn extract_dexs_from_apk(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    dex_files: Vec<String>,
+) -> Vec<Vec<u8>> {
+    let mut dexs = vec![];
+    for dex_file in dex_files {
+        if let Ok(mut zipfile) = archive.by_name(&dex_file) {
+            // read data of dex to buffer
+            let mut buff = Vec::with_capacity(zipfile.size() as usize);
+            if zipfile.read_to_end(&mut buff).is_err() {
+                continue;
+            }
+
+            // check if file is really a .dex file
+            if !buff.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && buff[7] == 0 {
+                continue;
+            }
+            dexs.push(buff);
+        }
+    }
+
+    dexs
 }
 
 fn detect_elf_architecture(sample_data: &[u8]) -> Option<CoperELFArchitecture> {
@@ -256,118 +399,5 @@ struct APKAnalysisResult {
     is_cut: bool,
     elfs: Vec<(Vec<u8>, CoperELFArchitecture)>,
     dexs: Vec<Vec<u8>>,
-}
-
-fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
-    // open ziparchive
-    let cursor = Cursor::new(sample_data);
-    let Ok(mut archive) = ZipArchive::new(cursor) else {
-        return Ok(APKAnalysisResult {
-            is_cut: true,
-            elfs: vec![],
-            dexs: vec![],
-        });
-    };
-
-    let mut elfs = vec![];
-    let mut dexs = vec![];
-
-    // extract all filenames that end with .apk
-    // some samples are wrapped with tanglebot this tries
-    // to get the inner apk and analyse is as well
-    let inner_apks: Vec<String> = archive
-        .file_names()
-        .filter(|filename| filename.ends_with(".apk"))
-        .map(|s| s.to_owned())
-        .collect();
-
-    for apk in inner_apks {
-        let digest = digest(sample_data);
-        println!("{digest}: {apk}");
-
-        if let Ok(mut zipfile) = archive.by_name(&apk) {
-            // read data of inner apk to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
-                continue;
-            }
-
-            // check if file is really a apk file
-            if !buff.starts_with(&[0x50, 0x4B]) {
-                continue;
-            }
-
-            // TODO: handle inner apks
-            // - figure out how to get in to "initial" loop of adding a new sample
-        }
-    }
-
-    // extract all filenames in the lib/ directory
-    let elf_files: Vec<String> = archive
-        .file_names()
-        .filter(|filename| filename.starts_with("lib/"))
-        .map(|s| s.to_owned())
-        .collect();
-
-    // extract contents of each elf file and their architecture
-    for elf_file in elf_files {
-        if let Ok(mut zipfile) = archive.by_name(&elf_file) {
-            // read data of elf to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
-                continue;
-            }
-
-            // check if file is really a elf file
-            if !buff.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
-                continue;
-            }
-
-            let architecture: CoperELFArchitecture;
-
-            if elf_file.starts_with("lib/armeabi-v7a/") {
-                architecture = CoperELFArchitecture::ArmEabiV7a;
-            } else if elf_file.starts_with("lib/arm64-v8a/") {
-                architecture = CoperELFArchitecture::Arm64V8a;
-            } else if elf_file.starts_with("lib/x86_64/") {
-                architecture = CoperELFArchitecture::X86_64;
-            } else if elf_file.starts_with("lib/x86/") {
-                architecture = CoperELFArchitecture::X86;
-            } else {
-                continue;
-            }
-
-            elfs.push((buff, architecture));
-        }
-    }
-
-    // extract all filenames that end with .dex
-    let dex_files: Vec<String> = archive
-        .file_names()
-        .filter(|filename| filename.ends_with(".dex"))
-        .map(|s| s.to_owned())
-        .collect();
-
-    // extract all .dex files
-    for dex_file in dex_files {
-        if let Ok(mut zipfile) = archive.by_name(&dex_file) {
-            // read data of dex to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
-                continue;
-            }
-
-            // check if file is really a .dex file
-            if !buff.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && sample_data[7] == 0 {
-                continue;
-            }
-            dexs.push(buff);
-        }
-    }
-
-    Ok(APKAnalysisResult {
-        is_cut: false,
-        elfs,
-        dexs,
-    })
+    apks: Vec<(Vec<u8>, String)>,
 }
