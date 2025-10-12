@@ -1,6 +1,7 @@
 mod classifier;
 mod cli;
 mod graph_creators;
+mod utils;
 
 use anyhow::Result;
 use clap::Parser;

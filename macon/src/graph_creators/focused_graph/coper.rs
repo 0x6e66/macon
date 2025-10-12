@@ -15,15 +15,18 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
 use zip::ZipArchive;
 
-use crate::graph_creators::focused_graph::{
-    FocusedGraph,
-    nodes::{
-        FocusedCorpus, HasMalwareFamily,
-        coper::{
-            Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasDEX,
-            CoperHasELF,
+use crate::{
+    graph_creators::focused_graph::{
+        FocusedGraph,
+        nodes::{
+            FocusedCorpus, HasMalwareFamily,
+            coper::{
+                Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK,
+                CoperHasDEX, CoperHasELF,
+            },
         },
     },
+    utils::extract_from_zip,
 };
 
 impl FocusedGraph {
@@ -188,8 +191,8 @@ impl FocusedGraph {
                 // TODO: handle inner apks
                 // - figure out how to get in to "initial" loop of adding a new sample
 
-                let digest = digest(sample_data);
-                println!("{digest}: {sample_filename}");
+                // let digest = digest(sample_data);
+                // println!("{digest}: {sample_filename}");
             }
         }
 
@@ -256,33 +259,6 @@ impl FocusedGraph {
     }
 }
 
-fn extract_from_zip(
-    archive: &mut ZipArchive<Cursor<&[u8]>>,
-    sample_filename: &str,
-) -> Result<Vec<u8>> {
-    // try to extract file from zip the normal way
-    if let Ok(mut zipfile) = archive.by_name(sample_filename) {
-        let mut buff = Vec::with_capacity(zipfile.size() as usize);
-        zipfile.read_to_end(&mut buff)?;
-        return Ok(buff);
-    }
-
-    // get inner data of archive and remove encryption bits from every file in archive
-    let sample_data = archive.clone().into_inner().into_inner();
-    let sample_data = macon_zip::try_remove_encryption_bits(sample_data)?;
-
-    // create new archive
-    let cursor = Cursor::new(sample_data);
-    let mut archive = ZipArchive::new(cursor)?;
-
-    // try to extract file again
-    let mut zipfile = archive.by_name(sample_filename)?;
-    let mut buff = Vec::with_capacity(zipfile.size() as usize);
-    zipfile.read_to_end(&mut buff)?;
-
-    Ok(buff)
-}
-
 fn extract_inner_apks_from_apk(
     archive: &mut ZipArchive<Cursor<&[u8]>>,
     apk_files: Vec<String>,
@@ -290,7 +266,7 @@ fn extract_inner_apks_from_apk(
     let mut apks = vec![];
 
     for apk_filename in apk_files {
-        if let Ok(apk_data) = extract_from_zip(archive, &apk_filename) {
+        if let Ok(apk_data) = extract_from_zip(archive, &apk_filename, true) {
             // check if file is really a apk file
             if !apk_data.starts_with(&[0x50, 0x4B]) {
                 continue;
@@ -310,7 +286,7 @@ fn extract_elfs_from_apk(
     let mut elfs = vec![];
 
     for elf_filename in elf_files {
-        if let Ok(elf_data) = extract_from_zip(archive, &elf_filename) {
+        if let Ok(elf_data) = extract_from_zip(archive, &elf_filename, true) {
             // check if file is really a elf file
             if !elf_data.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
                 continue;
@@ -344,7 +320,7 @@ fn extract_dexs_from_apk(
     let mut dexs = vec![];
 
     for dex_filename in dex_files {
-        if let Ok(dex_data) = extract_from_zip(archive, &dex_filename) {
+        if let Ok(dex_data) = extract_from_zip(archive, &dex_filename, true) {
             // check if file is really a .dex file
             if !dex_data.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && dex_data[7] == 0 {
                 continue;
