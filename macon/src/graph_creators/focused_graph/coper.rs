@@ -157,15 +157,12 @@ impl FocusedGraph {
     }
 
     fn coper_create_apk_node(&self, sample_data: &[u8]) -> Result<Vec<Document<CoperAPK>>> {
-        // extract elfs
         let apk_analysis_result = self.analyse_apk(sample_data);
 
         let sha256sum = digest(sample_data);
         let apk_data = CoperAPK {
             sha256sum: sha256sum.clone(),
-
-            // TODO: check if boolean logic is sound
-            is_cut: apk_analysis_result.as_ref().is_ok_and(|res| res.is_cut),
+            is_cut: apk_analysis_result.is_cut,
         };
 
         let UpsertResult {
@@ -182,21 +179,21 @@ impl FocusedGraph {
         }
 
         // create and upsert elf nodes and edges
-        if let Ok(res) = apk_analysis_result {
+        if !apk_analysis_result.is_cut {
             // handle elf files in apk
-            for (sample_data, architecture) in res.elfs {
+            for (sample_data, architecture) in apk_analysis_result.elfs {
                 let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture))?;
                 self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_nodes[0], &elf_node)?;
             }
 
             // handle dex files in apk
-            for sample_data in res.dexs {
+            for sample_data in apk_analysis_result.dexs {
                 let dex_node = self.coper_create_dex_node(&sample_data)?;
                 self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_nodes[0], &dex_node)?;
             }
 
             // handle inner apks of apk
-            for (sample_data, sample_filename) in res.apks {
+            for (sample_data, sample_filename) in apk_analysis_result.apks {
                 let inner_apk_nodes = self.coper_create_apk_node(&sample_data)?;
 
                 for inner_apk_node in inner_apk_nodes {
@@ -226,16 +223,16 @@ impl FocusedGraph {
         Ok(dex_node)
     }
 
-    fn analyse_apk(&self, sample_data: &[u8]) -> Result<APKAnalysisResult> {
+    fn analyse_apk(&self, sample_data: &[u8]) -> APKAnalysisResult {
         // open zip archive
         let cursor = Cursor::new(sample_data);
         let Ok(mut archive) = ZipArchive::new(cursor) else {
-            return Ok(APKAnalysisResult {
+            return APKAnalysisResult {
                 is_cut: true,
                 elfs: vec![],
                 dexs: vec![],
                 apks: vec![],
-            });
+            };
         };
 
         // extract all filenames that end with .apk
@@ -263,12 +260,12 @@ impl FocusedGraph {
             .collect();
         let dexs = extract_dexs_from_apk(&mut archive, dex_files);
 
-        Ok(APKAnalysisResult {
+        APKAnalysisResult {
             is_cut: false,
             elfs,
             dexs,
             apks,
-        })
+        }
     }
 }
 
