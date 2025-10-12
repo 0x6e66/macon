@@ -193,7 +193,7 @@ impl FocusedGraph {
             }
 
             // handle inner apks of apk
-            for (sample_data, sample_filename) in apk_analysis_result.apks {
+            for sample_data in apk_analysis_result.apks {
                 let inner_apk_nodes = self.coper_create_apk_node(&sample_data)?;
 
                 for inner_apk_node in inner_apk_nodes {
@@ -272,7 +272,7 @@ impl FocusedGraph {
 fn extract_inner_apks_from_apk(
     archive: &mut ZipArchive<Cursor<&[u8]>>,
     apk_files: Vec<String>,
-) -> Vec<(Vec<u8>, String)> {
+) -> Vec<Vec<u8>> {
     let mut apks = vec![];
 
     for apk_filename in apk_files {
@@ -282,7 +282,7 @@ fn extract_inner_apks_from_apk(
                 continue;
             }
 
-            apks.push((apk_data, apk_filename));
+            apks.push(apk_data);
         }
     }
 
@@ -396,5 +396,5 @@ struct APKAnalysisResult {
     is_cut: bool,
     elfs: Vec<(Vec<u8>, CoperELFArchitecture)>,
     dexs: Vec<Vec<u8>>,
-    apks: Vec<(Vec<u8>, String)>,
+    apks: Vec<Vec<u8>>,
 }
