@@ -9,7 +9,7 @@ There are different file types from different stages of the malware all placed u
 This project aims to tackle this issue. To normalize a malware corpus a graph structure is used.
 In this graph every distinct sample is a node. If a sample drops another sample, the dropped sample
 is connected via an edge. The dropped sample could be the result of a regular dropper or something 
-like the native code of a android apk (`lib/*/*.so`). In side the graph every malware sample is
+like the native code of a android apk (`lib/*/*.so`). Inside the graph every malware sample is
 guaranteed to be deduplicated. 
 
 ## Installation
