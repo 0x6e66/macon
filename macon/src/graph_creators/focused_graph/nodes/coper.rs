@@ -19,6 +19,13 @@ pub struct CoperHasAPK {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+pub struct CoperHasInnerAPK {
+    pub _key: String,
+    pub _from: String,
+    pub _to: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
 pub struct CoperAPK {
     pub sha256sum: String,
 
@@ -65,6 +72,7 @@ pub struct CoperDEX {
 }
 
 impl_edge_attributes!(CoperHasAPK);
+impl_edge_attributes!(CoperHasInnerAPK);
 impl_edge_attributes!(CoperHasELF);
 impl_edge_attributes!(CoperHasDEX);
 
@@ -78,6 +86,11 @@ pub fn coper_edge_definitions() -> Vec<EdgeDefinition> {
         EdgeDefinition {
             collection: get_name::<CoperHasAPK>(),
             from: vec![get_name::<Coper>()],
+            to: vec![get_name::<CoperAPK>()],
+        },
+        EdgeDefinition {
+            collection: get_name::<CoperHasInnerAPK>(),
+            from: vec![get_name::<CoperAPK>()],
             to: vec![get_name::<CoperAPK>()],
         },
         EdgeDefinition {

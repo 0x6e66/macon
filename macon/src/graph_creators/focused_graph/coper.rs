@@ -22,7 +22,7 @@ use crate::{
             FocusedCorpus, HasMalwareFamily,
             coper::{
                 Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK,
-                CoperHasDEX, CoperHasELF,
+                CoperHasDEX, CoperHasELF, CoperHasInnerAPK,
             },
         },
     },
@@ -110,8 +110,10 @@ impl FocusedGraph {
     ) -> Result<()> {
         match detect_sample_type(sample_data) {
             Some(CoperSampleType::APK) => {
-                let apk_node = self.coper_create_apk_node(sample_data)?;
-                self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node)?;
+                let apk_nodes = self.coper_create_apk_node(sample_data)?;
+                for apk_node in apk_nodes {
+                    self.upsert_edge::<Coper, CoperAPK, CoperHasAPK>(main_node, &apk_node)?;
+                }
             }
             Some(CoperSampleType::ELF) => {
                 let _ = self.coper_create_elf_node(sample_data, None)?;
@@ -154,13 +156,15 @@ impl FocusedGraph {
         Ok(elf_node)
     }
 
-    fn coper_create_apk_node(&self, sample_data: &[u8]) -> Result<Document<CoperAPK>> {
+    fn coper_create_apk_node(&self, sample_data: &[u8]) -> Result<Vec<Document<CoperAPK>>> {
         // extract elfs
         let apk_analysis_result = self.analyse_apk(sample_data);
 
         let sha256sum = digest(sample_data);
         let apk_data = CoperAPK {
             sha256sum: sha256sum.clone(),
+
+            // TODO: check if boolean logic is sound
             is_cut: apk_analysis_result.as_ref().is_ok_and(|res| res.is_cut),
         };
 
@@ -169,34 +173,43 @@ impl FocusedGraph {
             created,
         } = self.upsert_node::<CoperAPK>(apk_data, "sha256sum", &sha256sum)?;
 
+        let mut apk_nodes = vec![apk_node];
+
         // Sample was not created => sample was already present in DB
         // Can be aborted here
         if !created {
-            return Ok(apk_node);
+            return Ok(apk_nodes);
         }
 
         // create and upsert elf nodes and edges
         if let Ok(res) = apk_analysis_result {
+            // handle elf files in apk
             for (sample_data, architecture) in res.elfs {
                 let elf_node = self.coper_create_elf_node(&sample_data, Some(architecture))?;
-                self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_node, &elf_node)?;
+                self.upsert_edge::<CoperAPK, CoperELF, CoperHasELF>(&apk_nodes[0], &elf_node)?;
             }
 
+            // handle dex files in apk
             for sample_data in res.dexs {
                 let dex_node = self.coper_create_dex_node(&sample_data)?;
-                self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_node, &dex_node)?;
+                self.upsert_edge::<CoperAPK, CoperDEX, CoperHasDEX>(&apk_nodes[0], &dex_node)?;
             }
 
+            // handle inner apks of apk
             for (sample_data, sample_filename) in res.apks {
-                // TODO: handle inner apks
-                // - figure out how to get in to "initial" loop of adding a new sample
+                let inner_apk_nodes = self.coper_create_apk_node(&sample_data)?;
 
-                // let digest = digest(sample_data);
-                // println!("{digest}: {sample_filename}");
+                for inner_apk_node in inner_apk_nodes {
+                    self.upsert_edge::<CoperAPK, CoperAPK, CoperHasInnerAPK>(
+                        &apk_nodes[0],
+                        &inner_apk_node,
+                    )?;
+                    apk_nodes.push(inner_apk_node);
+                }
             }
         }
 
-        Ok(apk_node)
+        Ok(apk_nodes)
     }
 
     fn coper_create_dex_node(&self, sample_data: &[u8]) -> Result<Document<CoperDEX>> {
