@@ -272,13 +272,6 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
     let mut elfs = vec![];
     let mut dexs = vec![];
 
-    // extract all filenames in the lib/ directory
-    let elf_files: Vec<String> = archive
-        .file_names()
-        .filter(|filename| filename.starts_with("lib/"))
-        .map(|s| s.to_owned())
-        .collect();
-
     // extract all filenames that end with .apk
     // some samples are wrapped with tanglebot this tries
     // to get the inner apk and analyse is as well
@@ -299,13 +292,22 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
                 continue;
             }
 
-            // TODO: check if file is really a apk file
-            // - use magic bytes
+            // check if file is really a apk file
+            if !buff.starts_with(&[0x50, 0x4B]) {
+                continue;
+            }
 
             // TODO: handle inner apks
             // - figure out how to get in to "initial" loop of adding a new sample
         }
     }
+
+    // extract all filenames in the lib/ directory
+    let elf_files: Vec<String> = archive
+        .file_names()
+        .filter(|filename| filename.starts_with("lib/"))
+        .map(|s| s.to_owned())
+        .collect();
 
     // extract contents of each elf file and their architecture
     for elf_file in elf_files {
@@ -316,8 +318,10 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
                 continue;
             }
 
-            // TODO: check if file is really a elf file
-            // - use magic bytes
+            // check if file is really a elf file
+            if !buff.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
+                continue;
+            }
 
             let architecture: CoperELFArchitecture;
 
@@ -353,9 +357,10 @@ fn analyse_apk(sample_data: &[u8]) -> Result<APKAnalysisResult> {
                 continue;
             }
 
-            // TODO: check if file is really a .dex file
-            // - use magic bytes
-
+            // check if file is really a .dex file
+            if !buff.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && sample_data[7] == 0 {
+                continue;
+            }
             dexs.push(buff);
         }
     }
