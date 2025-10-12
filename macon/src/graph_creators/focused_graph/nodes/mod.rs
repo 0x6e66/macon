@@ -1,6 +1,6 @@
 pub mod coper;
 
-use cag::impl_edge_attributes;
+use macon_cag::impl_edge_attributes;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

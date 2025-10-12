@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
-use cag::{
+use macon_cag::{
     base_creator::GraphCreatorBase,
     prelude::Database,
     utils::{
@@ -29,7 +29,7 @@ pub struct FocusedGraph {
 }
 
 impl FocusedGraph {
-    pub fn try_new(config: &cag::utils::config::Config) -> Result<Self> {
+    pub fn try_new(config: &Config) -> Result<Self> {
         let conn = establish_database_connection(config)?;
         let db = ensure_database(&conn, &config.database)?;
 
@@ -67,10 +67,10 @@ pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<(
 impl GraphCreatorBase for FocusedGraph {
     fn init<T>(
         &self,
-        config: cag::utils::config::Config,
+        config: Config,
         corpus_node_data: T,
         edge_definitions: Vec<EdgeDefinition>,
-    ) -> cag::prelude::Result<Document<T>>
+    ) -> macon_cag::prelude::Result<Document<T>>
     where
         T: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
     {

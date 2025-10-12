@@ -1,5 +1,5 @@
 use arangors::graph::EdgeDefinition;
-use cag::{impl_edge_attributes, utils::get_name};
+use macon_cag::{impl_edge_attributes, utils::get_name};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
