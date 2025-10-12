@@ -6,11 +6,11 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use arangors::{Document, collection::CollectionType};
-use cag::{
+use indicatif::ParallelProgressIterator;
+use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_collection,
 };
-use indicatif::ParallelProgressIterator;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
 use zip::ZipArchive;
@@ -256,28 +256,48 @@ impl FocusedGraph {
     }
 }
 
+fn extract_from_zip(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    sample_filename: &str,
+) -> Result<Vec<u8>> {
+    // try to extract file from zip the normal way
+    if let Ok(mut zipfile) = archive.by_name(sample_filename) {
+        let mut buff = Vec::with_capacity(zipfile.size() as usize);
+        zipfile.read_to_end(&mut buff)?;
+        return Ok(buff);
+    }
+
+    // get inner data of archive and remove encryption bits from every file in archive
+    let sample_data = archive.clone().into_inner().into_inner();
+    let sample_data = macon_zip::try_remove_encryption_bits(sample_data)?;
+
+    // create new archive
+    let cursor = Cursor::new(sample_data);
+    let mut archive = ZipArchive::new(cursor)?;
+
+    // try to extract file again
+    let mut zipfile = archive.by_name(sample_filename)?;
+    let mut buff = Vec::with_capacity(zipfile.size() as usize);
+    zipfile.read_to_end(&mut buff)?;
+
+    Ok(buff)
+}
+
 fn extract_inner_apks_from_apk(
     archive: &mut ZipArchive<Cursor<&[u8]>>,
     apk_files: Vec<String>,
 ) -> Vec<(Vec<u8>, String)> {
     let mut apks = vec![];
-    for apk in apk_files {
-        if let Ok(mut zipfile) = archive.by_name(&apk) {
-            // read data of inner apk to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
-                continue;
-            }
 
+    for apk_filename in apk_files {
+        if let Ok(apk_data) = extract_from_zip(archive, &apk_filename) {
             // check if file is really a apk file
-            if !buff.starts_with(&[0x50, 0x4B]) {
+            if !apk_data.starts_with(&[0x50, 0x4B]) {
                 continue;
             }
 
-            apks.push((buff, apk));
+            apks.push((apk_data, apk_filename));
         }
-
-        // TODO: try again with encryption bits removed
     }
 
     apks
@@ -288,34 +308,29 @@ fn extract_elfs_from_apk(
     elf_files: Vec<String>,
 ) -> Vec<(Vec<u8>, CoperELFArchitecture)> {
     let mut elfs = vec![];
-    for elf_file in elf_files {
-        if let Ok(mut zipfile) = archive.by_name(&elf_file) {
-            // read data of elf to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
-                continue;
-            }
 
+    for elf_filename in elf_files {
+        if let Ok(elf_data) = extract_from_zip(archive, &elf_filename) {
             // check if file is really a elf file
-            if !buff.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
+            if !elf_data.starts_with(&[0x7f, 0x45, 0x4c, 0x46]) {
                 continue;
             }
 
             let architecture: CoperELFArchitecture;
 
-            if elf_file.starts_with("lib/armeabi-v7a/") {
+            if elf_filename.starts_with("lib/armeabi-v7a/") {
                 architecture = CoperELFArchitecture::ArmEabiV7a;
-            } else if elf_file.starts_with("lib/arm64-v8a/") {
+            } else if elf_filename.starts_with("lib/arm64-v8a/") {
                 architecture = CoperELFArchitecture::Arm64V8a;
-            } else if elf_file.starts_with("lib/x86_64/") {
+            } else if elf_filename.starts_with("lib/x86_64/") {
                 architecture = CoperELFArchitecture::X86_64;
-            } else if elf_file.starts_with("lib/x86/") {
+            } else if elf_filename.starts_with("lib/x86/") {
                 architecture = CoperELFArchitecture::X86;
             } else {
                 continue;
             }
 
-            elfs.push((buff, architecture));
+            elfs.push((elf_data, architecture));
         }
     }
 
@@ -327,19 +342,15 @@ fn extract_dexs_from_apk(
     dex_files: Vec<String>,
 ) -> Vec<Vec<u8>> {
     let mut dexs = vec![];
-    for dex_file in dex_files {
-        if let Ok(mut zipfile) = archive.by_name(&dex_file) {
-            // read data of dex to buffer
-            let mut buff = Vec::with_capacity(zipfile.size() as usize);
-            if zipfile.read_to_end(&mut buff).is_err() {
+
+    for dex_filename in dex_files {
+        if let Ok(dex_data) = extract_from_zip(archive, &dex_filename) {
+            // check if file is really a .dex file
+            if !dex_data.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && dex_data[7] == 0 {
                 continue;
             }
 
-            // check if file is really a .dex file
-            if !buff.starts_with(&[0x64, 0x65, 0x78, 0x0a]) && buff[7] == 0 {
-                continue;
-            }
-            dexs.push(buff);
+            dexs.push(dex_data);
         }
     }
 
