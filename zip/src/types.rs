@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use anyhow::{Error, Result, anyhow};
 
 #[derive(Debug, Default)]
@@ -9,20 +7,19 @@ pub struct ZipArchive<'a> {
     pub eocd: EOCD<'a>,
 }
 
-impl<'a> ZipArchive<'a> {
+impl ZipArchive<'_> {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_bytes(self) -> Vec<u8> {
         let zipfiles = self
             .zip_files
             .into_iter()
-            .map(|zf| zf.to_bytes())
-            .flatten()
+            .flat_map(|zf| zf.to_bytes())
             .collect();
 
         let cdhs = self
             .central_directory_headers
             .into_iter()
-            .map(|zf| zf.to_bytes())
-            .flatten()
+            .flat_map(|zf| zf.to_bytes())
             .collect();
 
         vec![zipfiles, cdhs, self.eocd.to_bytes()]
@@ -50,7 +47,7 @@ impl<'a> TryFrom<&'a [u8]> for ZipArchive<'a> {
         for cdh in &ziparchive.central_directory_headers {
             let zipfile = ZipFile::try_from_with_compressed_size(
                 &value[cdh.local_header_offset as usize..],
-                &cdh,
+                cdh,
             )?;
             zip_files.push(zipfile);
         }
@@ -70,6 +67,7 @@ pub struct ZipFile<'a> {
 
 impl<'a> ZipFile<'a> {
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         let mut len = self.local_file_header.len();
         len += self.file_data.len();
@@ -100,7 +98,7 @@ impl<'a> ZipFile<'a> {
         Ok(Self {
             local_file_header,
             file_data,
-            data_discriptor: data_discriptor,
+            data_discriptor,
         })
     }
 
@@ -115,7 +113,7 @@ impl<'a> ZipFile<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for ZipFile<'a> {
+impl std::fmt::Debug for ZipFile<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ZipFile")
             .field("local_file_header", &self.local_file_header)
@@ -142,7 +140,7 @@ pub struct LocalFileHeader<'a> {
     pub extra_field: &'a [u8],
 }
 
-impl<'a> LocalFileHeader<'a> {
+impl LocalFileHeader<'_> {
     pub fn len(&self) -> usize {
         30 + self.file_name_length as usize + self.extra_field_length as usize
     }
@@ -186,7 +184,7 @@ impl<'a> TryFrom<&'a [u8]> for LocalFileHeader<'a> {
 
         let mut start = 30;
         let mut stop = 30 + file_name_length as usize;
-        if stop as usize > value.len() {
+        if stop > value.len() {
             return Err(anyhow!("invalid file_name_length"));
         }
         let file_name = std::str::from_utf8(&value[start..stop])?;
@@ -199,7 +197,7 @@ impl<'a> TryFrom<&'a [u8]> for LocalFileHeader<'a> {
         let extra_field = &value[start..stop];
 
         // check for zip64
-        if let Some(zip64) = extra_field.get(0) {
+        if let Some(zip64) = extra_field.first() {
             if *zip64 == 1 {
                 return Err(anyhow!("zip64"));
             }
@@ -233,6 +231,7 @@ pub struct DataDiscriptor {
 
 impl DataDiscriptor {
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         if self.signature.is_some() { 16 } else { 12 }
     }
@@ -278,6 +277,7 @@ impl TryFrom<&[u8]> for DataDiscriptor {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Default)]
 pub struct CDH<'a> {
     /// central file header signature (0x02014b50 (LE))
@@ -316,7 +316,7 @@ impl<'a> CDH<'a> {
         let mut cdhs = vec![];
         let mut pos = 0;
 
-        while pos <= value.len() - 1 {
+        while pos < value.len() {
             let cdh = CDH::try_from(&value[pos..])?;
             pos += cdh.len();
             cdhs.push(cdh);
@@ -376,7 +376,7 @@ impl<'a> TryFrom<&'a [u8]> for CDH<'a> {
 
         let mut start = 46;
         let mut stop = 46 + file_name_length as usize;
-        if stop as usize > value.len() {
+        if stop > value.len() {
             return Err(anyhow!("invalid file_name_length"));
         }
         let file_name = std::str::from_utf8(&value[start..stop])?;
@@ -420,6 +420,7 @@ impl<'a> TryFrom<&'a [u8]> for CDH<'a> {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Default)]
 pub struct EOCD<'a> {
     /// end of central directory signature (0x06064b50 (LE))
@@ -450,7 +451,8 @@ pub struct EOCD<'a> {
     pub comment: &'a [u8],
 }
 
-impl<'a> EOCD<'a> {
+impl EOCD<'_> {
+    #[allow(dead_code)]
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.comment_length as usize + 22
@@ -481,7 +483,7 @@ impl<'a> TryFrom<&'a [u8]> for EOCD<'a> {
         let pos = value
             .windows(4)
             .rev()
-            .position(|w| w == &[0x50, 0x4b, 0x5, 0x6])
+            .position(|w| w == [0x50, 0x4b, 0x5, 0x6])
             .ok_or(anyhow!("EOCD not found"))?;
 
         if pos >= u16::MAX as usize + 22 {
