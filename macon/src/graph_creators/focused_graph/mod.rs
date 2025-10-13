@@ -1,5 +1,6 @@
-pub mod coper;
-pub mod nodes;
+mod coper;
+mod mintsloader;
+mod nodes;
 
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ use crate::{
     classifier::MalwareFamiliy,
     graph_creators::focused_graph::nodes::{
         FocusedCorpus, HasMalwareFamily, coper::coper_edge_definitions,
+        mintsloader::mintsloader_edge_definitions,
     },
 };
 
@@ -38,10 +40,11 @@ impl FocusedGraph {
 }
 
 pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<()> {
-    let edge_definitions: Vec<EdgeDefinition> = vec![coper_edge_definitions()]
-        .into_iter()
-        .flatten()
-        .collect();
+    let edge_definitions: Vec<EdgeDefinition> =
+        vec![coper_edge_definitions(), mintsloader_edge_definitions()]
+            .into_iter()
+            .flatten()
+            .collect();
 
     let corpus_data = FocusedCorpus {
         name: "FocusedCorpus".to_string(),
@@ -59,6 +62,7 @@ pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<(
 
     match family {
         MalwareFamiliy::Coper => gc.coper_main(files, &corpus_node)?,
+        MalwareFamiliy::Mintsloader => gc.mintsloader_main(files, &corpus_node)?,
     }
 
     Ok(())

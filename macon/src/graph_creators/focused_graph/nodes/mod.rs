@@ -1,4 +1,5 @@
 pub mod coper;
+pub mod mintsloader;
 
 use macon_cag::impl_edge_attributes;
 use schemars::JsonSchema;
