@@ -21,7 +21,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     classifier::MalwareFamiliy,
     graph_creators::focused_graph::nodes::{
-        FocusedCorpus, HasMalwareFamily, coper::coper_edge_definitions,
+        FocusedCorpus, HasMalwareFamily, base_edge_definitions, coper::coper_edge_definitions,
         mintsloader::mintsloader_edge_definitions,
     },
 };
@@ -40,11 +40,14 @@ impl FocusedGraph {
 }
 
 pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<()> {
-    let edge_definitions: Vec<EdgeDefinition> =
-        vec![coper_edge_definitions(), mintsloader_edge_definitions()]
-            .into_iter()
-            .flatten()
-            .collect();
+    let edge_definitions: Vec<EdgeDefinition> = vec![
+        base_edge_definitions(),
+        coper_edge_definitions(),
+        mintsloader_edge_definitions(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
     let corpus_data = FocusedCorpus {
         name: "FocusedCorpus".to_string(),
