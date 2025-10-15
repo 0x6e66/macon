@@ -38,19 +38,19 @@ impl FocusedGraph {
         files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
     ) -> Result<()> {
-        let sha_index_fields = Some(vec!["sha256sum".into()]);
+        let idxs = Some(vec!["sha256sum".into()]);
         let db = self.get_db();
 
         // Nodes
         ensure_collection::<Mintsloader>(db, CollectionType::Document, None)?;
-        ensure_collection::<MintsloaderPsXorBase64>(
-            db,
-            CollectionType::Document,
-            sha_index_fields,
-        )?;
+        ensure_collection::<MintsloaderPsXorBase64>(db, CollectionType::Document, idxs.clone())?;
+        ensure_collection::<MintsloaderPsDgaIex>(db, CollectionType::Document, idxs.clone())?;
+        ensure_collection::<MintsloaderHasPsStartProcess>(db, CollectionType::Document, idxs)?;
 
         // Edges
         ensure_collection::<MintsloaderHasPsXorBase64>(db, CollectionType::Edge, None)?;
+        ensure_collection::<MintsloaderHasPsDgaIex>(db, CollectionType::Edge, None)?;
+        ensure_collection::<MintsloaderHasPsStartProcess>(db, CollectionType::Edge, None)?;
 
         let main_node = self.mintsloader_create_main_node(corpus_node)?;
 
