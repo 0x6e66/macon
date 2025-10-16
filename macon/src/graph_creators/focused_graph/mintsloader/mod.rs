@@ -14,6 +14,7 @@ use base64::{
 };
 use flate2::bufread::GzDecoder;
 use indicatif::ParallelProgressIterator;
+use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_collection,
@@ -32,6 +33,17 @@ use crate::graph_creators::focused_graph::{
         MintsloaderPsXorBase64, MintsloaderX509Cert,
     },
 };
+
+lazy_static! {
+    static ref RE_FUNCTION: Regex = {
+        let s = r#"function\s+(?<function>[A-z0-9]+)\s+\{param\([^\)]+\)"#;
+        Regex::new(&s).unwrap()
+    };
+    static ref RE_KEY: Regex = {
+        let s = r#"\("(?<key>[A-z0-9]{12})"\)"#;
+        Regex::new(&s).unwrap()
+    };
+}
 
 impl FocusedGraph {
     pub fn mintsloader_main(
@@ -148,7 +160,7 @@ impl FocusedGraph {
             }
             None => {
                 return Err(anyhow!(
-                    "Sample type of the sample {sample_filename} could not be detected."
+                    "Sample type of the sample {sample_filename} could not be detected"
                 ));
             }
         }
@@ -339,9 +351,7 @@ impl FocusedGraph {
 }
 
 fn extract_key_and_base64_from_ps_xor_base64(sample_str: &str) -> Result<(&str, &str)> {
-    let s = r#"function\s+(?<function>[A-z0-9]+)\s+\{param\([^\)]+\)"#;
-    let re = Regex::new(s).unwrap();
-    let function_name = re
+    let function_name = RE_FUNCTION
         .captures(sample_str)
         .map(|c| c.extract::<1>())
         .map(|(_, [c])| c);
@@ -350,9 +360,7 @@ fn extract_key_and_base64_from_ps_xor_base64(sample_str: &str) -> Result<(&str, 
         return Err(anyhow!("Could not find function"));
     };
 
-    let s = r#"\("(?<key>[A-z0-9]{12})"\)"#;
-    let re = Regex::new(s).unwrap();
-    let xor_key = re
+    let xor_key = RE_KEY
         .captures(sample_str)
         .map(|c| c.extract::<1>())
         .map(|(_, [c])| c);
