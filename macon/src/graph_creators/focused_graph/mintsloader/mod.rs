@@ -1,3 +1,5 @@
+pub mod nodes;
+
 use std::{
     io::{Cursor, Read},
     path::PathBuf,
@@ -21,14 +23,11 @@ use regex::Regex;
 use sha256::digest;
 
 use crate::graph_creators::focused_graph::{
-    FocusedGraph,
-    nodes::{
-        FocusedCorpus, HasMalwareFamily,
-        mintsloader::{
-            Mintsloader, MintsloaderHasPsDgaIex, MintsloaderHasPsStartProcess,
-            MintsloaderHasPsXorBase64, MintsloaderPsDgaIex, MintsloaderPsStartProcess,
-            MintsloaderPsXorBase64,
-        },
+    FocusedCorpus, FocusedGraph, HasMalwareFamily,
+    mintsloader::nodes::{
+        Mintsloader, MintsloaderHasPsDgaIex, MintsloaderHasPsStartProcess,
+        MintsloaderHasPsXorBase64, MintsloaderPsDgaIex, MintsloaderPsStartProcess,
+        MintsloaderPsXorBase64,
     },
 };
 

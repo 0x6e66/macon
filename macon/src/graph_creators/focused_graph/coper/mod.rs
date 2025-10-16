@@ -1,3 +1,5 @@
+pub mod nodes;
+
 use std::{
     io::{Cursor, Read},
     path::PathBuf,
@@ -17,13 +19,10 @@ use zip::ZipArchive;
 
 use crate::{
     graph_creators::focused_graph::{
-        FocusedGraph,
-        nodes::{
-            FocusedCorpus, HasMalwareFamily,
-            coper::{
-                Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK,
-                CoperHasDEX, CoperHasELF, CoperHasInnerAPK,
-            },
+        FocusedCorpus, FocusedGraph, HasMalwareFamily,
+        coper::nodes::{
+            Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasDEX,
+            CoperHasELF, CoperHasInnerAPK,
         },
     },
     utils::extract_from_zip,

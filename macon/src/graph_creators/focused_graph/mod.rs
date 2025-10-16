@@ -1,14 +1,13 @@
-mod coper;
-mod mintsloader;
-mod nodes;
+pub mod coper;
+pub mod mintsloader;
 
-use std::fmt::Debug;
-use std::path::PathBuf;
+use std::{fmt::Debug, path::PathBuf};
 
 use anyhow::Result;
 use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
 use macon_cag::{
     base_creator::GraphCreatorBase,
+    impl_edge_attributes,
     prelude::Database,
     utils::{
         config::Config, ensure_collection, ensure_database, ensure_graph,
@@ -16,17 +15,40 @@ use macon_cag::{
     },
 };
 use schemars::JsonSchema;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     classifier::MalwareFamiliy,
-    graph_creators::focused_graph::nodes::{
-        FocusedCorpus, HasMalwareFamily, base_edge_definitions, coper::coper_edge_definitions,
-        mintsloader::mintsloader_edge_definitions,
+    graph_creators::focused_graph::{
+        coper::nodes::{Coper, coper_edge_definitions},
+        mintsloader::nodes::{Mintsloader, mintsloader_edge_definitions},
     },
 };
 
-pub struct FocusedGraph {
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+pub struct FocusedCorpus {
+    pub name: String,
+    pub display_name: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+pub struct HasMalwareFamily {
+    pub _key: String,
+    pub _from: String,
+    pub _to: String,
+}
+
+impl_edge_attributes!(HasMalwareFamily);
+
+fn base_edge_definitions() -> Vec<EdgeDefinition> {
+    vec![EdgeDefinition {
+        collection: get_name::<HasMalwareFamily>(),
+        from: vec![get_name::<FocusedCorpus>()],
+        to: vec![get_name::<Coper>(), get_name::<Mintsloader>()],
+    }]
+}
+
+struct FocusedGraph {
     db: Database,
 }
 
