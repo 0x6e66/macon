@@ -21,13 +21,15 @@ use macon_cag::{
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use sha256::digest;
+use shunting::{MathContext, ShuntingParser};
 
 use crate::graph_creators::focused_graph::{
     FocusedCorpus, FocusedGraph, HasMalwareFamily,
     mintsloader::nodes::{
-        Mintsloader, MintsloaderHasPsDgaIex, MintsloaderHasPsStartProcess,
-        MintsloaderHasPsXorBase64, MintsloaderPsDgaIex, MintsloaderPsStartProcess,
-        MintsloaderPsXorBase64,
+        Mintsloader, MintsloaderHasJava, MintsloaderHasPsDgaIex, MintsloaderHasPsStartProcess,
+        MintsloaderHasPsTwoLiner, MintsloaderHasPsXorBase64, MintsloaderHasX509Cert,
+        MintsloaderJava, MintsloaderPsDgaIex, MintsloaderPsStartProcess, MintsloaderPsTwoLiner,
+        MintsloaderPsXorBase64, MintsloaderX509Cert,
     },
 };
 
@@ -44,12 +46,18 @@ impl FocusedGraph {
         ensure_collection::<Mintsloader>(db, CollectionType::Document, None)?;
         ensure_collection::<MintsloaderPsXorBase64>(db, CollectionType::Document, idxs.clone())?;
         ensure_collection::<MintsloaderPsDgaIex>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderHasPsStartProcess>(db, CollectionType::Document, idxs)?;
+        ensure_collection::<MintsloaderPsStartProcess>(db, CollectionType::Document, idxs.clone())?;
+        ensure_collection::<MintsloaderPsTwoLiner>(db, CollectionType::Document, idxs.clone())?;
+        ensure_collection::<MintsloaderJava>(db, CollectionType::Document, idxs.clone())?;
+        ensure_collection::<MintsloaderX509Cert>(db, CollectionType::Document, idxs)?;
 
         // Edges
         ensure_collection::<MintsloaderHasPsXorBase64>(db, CollectionType::Edge, None)?;
         ensure_collection::<MintsloaderHasPsDgaIex>(db, CollectionType::Edge, None)?;
         ensure_collection::<MintsloaderHasPsStartProcess>(db, CollectionType::Edge, None)?;
+        ensure_collection::<MintsloaderHasPsTwoLiner>(db, CollectionType::Edge, None)?;
+        ensure_collection::<MintsloaderHasJava>(db, CollectionType::Edge, None)?;
+        ensure_collection::<MintsloaderHasX509Cert>(db, CollectionType::Edge, None)?;
 
         let main_node = self.mintsloader_create_main_node(corpus_node)?;
 
@@ -120,10 +128,23 @@ impl FocusedGraph {
                 )?;
             }
             Some(SampleType::PS_DGA_iex) => {
-                let _ = self.mintsloader_create_ps_dga_iex_node(sample_data)?;
+                self.mintsloader_create_ps_dga_iex_node(sample_data)?;
             }
             Some(SampleType::PS_Start_Process) => {
-                let _ = self.mintsloader_create_ps_start_process_node(sample_data)?;
+                self.mintsloader_create_ps_start_process_node(sample_data)?;
+            }
+            Some(SampleType::PS_Two_Liner) => {
+                let ps_two_liner_node = self.mintsloader_create_ps_two_liner_node(sample_data)?;
+                self.upsert_edge::<Mintsloader, MintsloaderPsTwoLiner, MintsloaderHasPsTwoLiner>(
+                    main_node,
+                    &ps_two_liner_node,
+                )?;
+            }
+            Some(SampleType::Java) => {
+                self.mintsloader_create_java_node(sample_data)?;
+            }
+            Some(SampleType::X509) => {
+                self.mintsloader_create_x509_node(sample_data)?;
             }
             None => {
                 return Err(anyhow!(
@@ -157,8 +178,8 @@ impl FocusedGraph {
             return Ok(ps_xor_node);
         }
 
+        // extract next stage
         let next_stage = decode_base64_with_xor_key(xor_key, base64)?;
-
         if next_stage.contains("$executioncontext;") {
             let ps_dga_iex_node = self.mintsloader_create_ps_dga_iex_node(next_stage.as_bytes())?;
             self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderPsDgaIex, MintsloaderHasPsDgaIex>(&ps_xor_node, &ps_dga_iex_node)?;
@@ -166,6 +187,27 @@ impl FocusedGraph {
             let ps_start_process_node =
                 self.mintsloader_create_ps_start_process_node(next_stage.as_bytes())?;
             self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderPsStartProcess, MintsloaderHasPsStartProcess>(&ps_xor_node, &ps_start_process_node)?;
+        }
+
+        // check for java code snippet and X.509 certificate
+        let sample_str = get_string_from_binary(sample_data);
+        let strings = get_deobfuscated_strings_from_sample_sorted(&sample_str);
+        for i in 0..2 {
+            if let Some(string) = strings.get(i) {
+                if string.starts_with("MIIE") {
+                    let x509_node = self.mintsloader_create_x509_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderX509Cert, MintsloaderHasX509Cert>(
+                        &ps_xor_node,
+                        &x509_node,
+                    )?;
+                } else if string.starts_with("using System") {
+                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderJava, MintsloaderHasJava>(
+                        &ps_xor_node,
+                        &java_node,
+                    )?;
+                }
+            }
         }
 
         Ok(ps_xor_node)
@@ -210,9 +252,104 @@ impl FocusedGraph {
 
         Ok(ps_start_process_node)
     }
+
+    fn mintsloader_create_ps_two_liner_node(
+        &self,
+        sample_data: &[u8],
+    ) -> Result<Document<MintsloaderPsTwoLiner>> {
+        let sha256sum = digest(sample_data);
+
+        let ps_two_liner_data = MintsloaderPsTwoLiner {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: ps_two_liner_node,
+            created,
+        } =
+            self.upsert_node::<MintsloaderPsTwoLiner>(ps_two_liner_data, "sha256sum", &sha256sum)?;
+
+        // Sample was not created => already in db => can be aborted here
+        if !created {
+            return Ok(ps_two_liner_node);
+        }
+
+        // check for java code snippet and X.509 certificate
+        let sample_str = get_string_from_binary(sample_data);
+        let strings = get_deobfuscated_strings_from_sample_sorted(&sample_str);
+        for i in 0..2 {
+            if let Some(string) = strings.get(i) {
+                if string.starts_with("MIIE") {
+                    let x509_node = self.mintsloader_create_x509_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPsTwoLiner, MintsloaderX509Cert, MintsloaderHasX509Cert>(
+                        &ps_two_liner_node,
+                        &x509_node,
+                    )?;
+                } else if string.starts_with("using System") {
+                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPsTwoLiner, MintsloaderJava, MintsloaderHasJava>(
+                        &ps_two_liner_node,
+                        &java_node,
+                    )?;
+                }
+            }
+        }
+
+        Ok(ps_two_liner_node)
+    }
+
+    fn mintsloader_create_java_node(
+        &self,
+        sample_data: &[u8],
+    ) -> Result<Document<MintsloaderJava>> {
+        let sha256sum = digest(sample_data);
+
+        let ps_java_data = MintsloaderJava {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: ps_java_node,
+            created: _,
+        } = self.upsert_node::<MintsloaderJava>(ps_java_data, "sha256sum", &sha256sum)?;
+
+        Ok(ps_java_node)
+    }
+
+    fn mintsloader_create_x509_node(
+        &self,
+        sample_data: &[u8],
+    ) -> Result<Document<MintsloaderX509Cert>> {
+        let base64_decoder = GeneralPurpose::new(&alphabet::STANDARD, PAD);
+        let sample_data = base64_decoder.decode(sample_data)?;
+
+        let sha256sum = digest(sample_data);
+
+        let ps_x509_data = MintsloaderX509Cert {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: ps_x509_node,
+            created: _,
+        } = self.upsert_node::<MintsloaderX509Cert>(ps_x509_data, "sha256sum", &sha256sum)?;
+
+        Ok(ps_x509_node)
+    }
 }
 
 fn extract_key_and_base64_from_ps_xor_base64(sample_str: &str) -> Result<(&str, &str)> {
+    let s = r#"function\s+(?<function>[A-z0-9]+)\s+\{param\([^\)]+\)"#;
+    let re = Regex::new(s).unwrap();
+    let function_name = re
+        .captures(sample_str)
+        .map(|c| c.extract::<1>())
+        .map(|(_, [c])| c);
+
+    let Some(function_name) = function_name else {
+        return Err(anyhow!("Could not find function"));
+    };
+
     let s = r#"\("(?<key>[A-z0-9]{12})"\)"#;
     let re = Regex::new(s).unwrap();
     let xor_key = re
@@ -220,8 +357,9 @@ fn extract_key_and_base64_from_ps_xor_base64(sample_str: &str) -> Result<(&str, 
         .map(|c| c.extract::<1>())
         .map(|(_, [c])| c);
 
-    let s = r#""(?<base64>[A-z][A-z0-9+/=]{100,})""#;
-    let re = Regex::new(s).unwrap();
+    let s = r#"\s+"(?<base64>[A-z0-9+/=]+)""#;
+    let s = format!("{function_name}{s}");
+    let re = Regex::new(&s).unwrap();
     let base64 = re
         .captures(sample_str)
         .map(|c| c.extract::<1>())
@@ -256,9 +394,9 @@ fn decode_base64_with_xor_key(xor_key: &str, base64: &str) -> Result<String> {
 enum SampleType {
     /// Sample is a powershell script.
     /// It has a base64 encoded blob, which is
-    ///  1. base64-decoded and
-    ///  2. "decrypted" with a static xor key and
-    ///  3. gzip-decoded
+    ///     1. base64-decoded and
+    ///     2. "decrypted" with a static xor key and
+    ///     3. gzip-decoded
     ///
     /// Produces [`SampleType::PS_DGA_iex`] xor [`SampleType::PS_Start_Process`]
     ///
@@ -273,9 +411,52 @@ enum SampleType {
     /// Sample is a powershell script.
     /// It starts a new powershell process with a new alias "rzs"
     PS_Start_Process,
+
+    /// Sample is a powershell script with about two lines
+    /// Has obfuscated strings that contain
+    ///     1. a java code snippet ([`SampleType::Java`]) and
+    ///     2. a x509 certificate ([`SampleType::X509`])
+    PS_Two_Liner,
+
+    /// Java code snippet contained inside [`SampleType::PS_Two_Liner`]
+    Java,
+
+    /// X.509 certificate contained inside [`SampleType::PS_Two_Liner`]
+    X509,
 }
 
 fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
+    let sample_str = get_string_from_binary(sample_data);
+
+    if let Ok((xor_key, base64)) = extract_key_and_base64_from_ps_xor_base64(&sample_str) {
+        return Some(SampleType::PS_Xor_B64(
+            xor_key.to_owned(),
+            base64.to_owned(),
+        ));
+    } else if sample_str
+        .find("$executioncontext;")
+        .and(
+            sample_str
+                .find("$global:block=(curl")
+                .or(sample_str.find("iex(curl")),
+        )
+        .is_some()
+    {
+        return Some(SampleType::PS_DGA_iex);
+    } else if sample_str.contains("start-process powershell") {
+        return Some(SampleType::PS_Start_Process);
+    } else if sample_str.trim().starts_with("using System") {
+        return Some(SampleType::Java);
+    } else if sample_str.trim().starts_with("MIIE") {
+        return Some(SampleType::X509);
+    } else if sample_str.lines().collect::<Vec<&str>>().len() < 5 {
+        return Some(SampleType::PS_Two_Liner);
+    }
+
+    None
+}
+
+fn get_string_from_binary(sample_data: &[u8]) -> String {
     // count number of null bytes in odd positions
     let count = sample_data
         .iter()
@@ -297,24 +478,68 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
         }
     };
 
-    if let Ok((xor_key, base64)) = extract_key_and_base64_from_ps_xor_base64(&sample_str) {
-        return Some(SampleType::PS_Xor_B64(
-            xor_key.to_owned(),
-            base64.to_owned(),
-        ));
-    } else if sample_str
-        .find("$executioncontext;")
-        .and(
-            sample_str
-                .find("$global:block=(curl")
-                .or(sample_str.find("iex(curl")),
-        )
-        .is_some()
-    {
-        return Some(SampleType::PS_DGA_iex);
-    } else if sample_str.contains("start-process powershell") {
-        return Some(SampleType::PS_Start_Process);
+    sample_str
+}
+
+fn get_deobfuscated_strings_from_sample_sorted(sample_str: &str) -> Vec<String> {
+    let mut strs: Vec<String> = get_obfuscated_strings_from_sample(sample_str)
+        .iter()
+        .map(|obs| deobfuscate_string(obs))
+        .filter_map(|s| s.ok())
+        .collect();
+
+    strs.sort_by_key(|s| std::cmp::Reverse(s.len()));
+
+    strs
+}
+
+fn deobfuscate_string(obfuscated_string: &str) -> Result<String> {
+    let mut res = String::new();
+
+    // evaluate each obfuscated character in the string using the "Shunting Yard" algorithm
+    for obfuscated_char in obfuscated_string.split(",") {
+        let expr = ShuntingParser::parse_str(obfuscated_char).map_err(|e| anyhow!(e))?;
+        let result = MathContext::new().eval(&expr).map_err(|e| anyhow!(e))? as u8;
+
+        res.push(result.into());
     }
 
-    None
+    Ok(res)
+}
+
+fn get_obfuscated_strings_from_sample(sample_str: &str) -> Vec<String> {
+    let mut obfuscated_strings = vec![];
+
+    for (j, _) in sample_str.match_indices("@(") {
+        let mut pos = 1;
+        let mut i = j + 2;
+
+        // indicates that obfuscated_string is not ascii, because char boundary was crossed
+        let mut failed = false;
+
+        while pos != 0 && i < sample_str.len() {
+            // check is char boundary gets crossed
+            if !(sample_str.is_char_boundary(i) && sample_str.is_char_boundary(i + 1)) {
+                failed = true;
+                break;
+            }
+
+            if &sample_str[i..i + 1] == "(" {
+                pos += 1;
+            }
+            if &sample_str[i..i + 1] == ")" {
+                pos -= 1;
+            }
+            i += 1;
+        }
+
+        if !failed {
+            let tmp = &sample_str[j + 2..i - 1].trim();
+            if !tmp.is_empty() {
+                obfuscated_strings.push(tmp.to_string());
+            }
+        }
+    }
+
+    obfuscated_strings
 }
