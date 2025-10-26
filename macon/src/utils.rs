@@ -36,3 +36,28 @@ pub fn extract_from_zip(
 
     Ok(buff)
 }
+
+pub fn get_string_from_binary(sample_data: &[u8]) -> String {
+    // count number of null bytes in odd positions
+    let count = sample_data
+        .iter()
+        .enumerate()
+        .filter(|(i, e)| *i % 2 == 1 && **e == 0)
+        .count();
+    // if more than 98% percent of odd bytes are null it is probably utf16
+    let is_utf16 = (2 * count) as f32 / sample_data.len() as f32 > 0.98;
+
+    // get sample data as string based on utf-8 oder utf-16
+    let sample_str = match is_utf16 {
+        false => String::from_utf8_lossy(sample_data).to_string(),
+        true => {
+            let tmp: Vec<u16> = (0..sample_data.len() / 2)
+                .map(|i| u16::from_le_bytes([sample_data[2 * i], sample_data[2 * i + 1]]))
+                .collect();
+
+            String::from_utf16_lossy(&tmp)
+        }
+    };
+
+    sample_str
+}

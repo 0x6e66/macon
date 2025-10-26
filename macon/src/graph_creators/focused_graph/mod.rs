@@ -1,3 +1,4 @@
+pub mod carnavalheist;
 pub mod coper;
 pub mod mintsloader;
 
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::{
     classifier::MalwareFamiliy,
     graph_creators::focused_graph::{
+        carnavalheist::nodes::{Carnavalheist, carnavalheist_edge_definitions},
         coper::nodes::{Coper, coper_edge_definitions},
         mintsloader::nodes::{Mintsloader, mintsloader_edge_definitions},
     },
@@ -44,7 +46,11 @@ fn base_edge_definitions() -> Vec<EdgeDefinition> {
     vec![EdgeDefinition {
         collection: get_name::<HasMalwareFamily>(),
         from: vec![get_name::<FocusedCorpus>()],
-        to: vec![get_name::<Coper>(), get_name::<Mintsloader>()],
+        to: vec![
+            get_name::<Carnavalheist>(),
+            get_name::<Coper>(),
+            get_name::<Mintsloader>(),
+        ],
     }]
 }
 
@@ -64,6 +70,7 @@ impl FocusedGraph {
 pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<()> {
     let edge_definitions: Vec<EdgeDefinition> = vec![
         base_edge_definitions(),
+        carnavalheist_edge_definitions(),
         coper_edge_definitions(),
         mintsloader_edge_definitions(),
     ]
@@ -86,6 +93,7 @@ pub fn focused_graph_main(files: &[PathBuf], family: MalwareFamiliy) -> Result<(
     let corpus_node = gc.init::<FocusedCorpus>(config, corpus_data, edge_definitions)?;
 
     match family {
+        MalwareFamiliy::Carnavalheist => gc.carnavalheist_main(files, &corpus_node)?,
         MalwareFamiliy::Coper => gc.coper_main(files, &corpus_node)?,
         MalwareFamiliy::Mintsloader => gc.mintsloader_main(files, &corpus_node)?,
     }
