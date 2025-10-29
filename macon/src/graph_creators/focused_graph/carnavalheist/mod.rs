@@ -133,7 +133,9 @@ impl FocusedGraph {
                 println!("{sample_filename}: BatchCommandConcat (not implemented)")
             }
             Some(SampleType::Ps) => println!("{sample_filename}: Ps (not implemented)"),
-            Some(SampleType::Python) => println!("{sample_filename}: Python (not implemented)"),
+            Some(SampleType::Python) => {
+                self.carnavalheist_create_python_node(sample_data)?;
+            }
             None => {
                 return Err(anyhow!(
                     "Sample type of the sample {sample_filename} could not be detected"
