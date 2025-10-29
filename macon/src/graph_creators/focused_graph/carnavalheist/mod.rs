@@ -8,7 +8,12 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use arangors::{Document, collection::CollectionType};
+use base64::{
+    Engine, alphabet,
+    engine::{GeneralPurpose, general_purpose::PAD},
+};
 use indicatif::ParallelProgressIterator;
+use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_collection,
@@ -26,6 +31,10 @@ use crate::{
     },
     utils::get_string_from_binary,
 };
+
+lazy_static! {
+    static ref BASE64_DECODER: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, PAD);
+}
 
 impl FocusedGraph {
     pub fn carnavalheist_main(
@@ -117,10 +126,10 @@ impl FocusedGraph {
                     &batch_node,
                 )?;
             }
-            Some(SampleType::BatchCommandNormal) => todo!(),
-            Some(SampleType::BatchCommandConcat) => todo!(),
-            Some(SampleType::Ps) => todo!(),
-            Some(SampleType::Python) => todo!(),
+            Some(SampleType::BatchCommandNormal) => (), //todo!(),
+            Some(SampleType::BatchCommandConcat) => (), //todo!(),
+            Some(SampleType::Ps) => (),                 //todo!(),
+            Some(SampleType::Python) => (),             //todo!(),
             None => {
                 return Err(anyhow!(
                     "Sample type of the sample {sample_filename} could not be detected"
@@ -151,9 +160,55 @@ impl FocusedGraph {
             return Ok(batch_node);
         }
 
-        // TODO: extract next stage
+        // extract next stage
+        let sample_str = get_string_from_binary(sample_data);
+
+        let start = sample_str
+            .find("powershell -WindowStyle Hidden -e")
+            .ok_or(anyhow!("Could not find next stage in batch file"))?
+            + 34;
+
+        let end = sample_str[start..]
+            .find(char::is_whitespace)
+            .ok_or(anyhow!("Could not find next stage in batch file"))?
+            + start;
+
+        let ps_base64_encoded = sample_str[start..end].as_bytes();
+        let tmp = BASE64_DECODER.decode(ps_base64_encoded)?;
+        let ps_base64_decoded = get_string_from_binary(&tmp);
+
+        let ps_node = self.carnavalheist_create_ps_node(ps_base64_decoded.as_bytes())?;
+        self.upsert_edge::<CarnavalheistBatch, CarnavalheistPs, CarnavalheistHasPs>(
+            &batch_node,
+            &ps_node,
+        )?;
 
         Ok(batch_node)
+    }
+
+    fn carnavalheist_create_ps_node(
+        &self,
+        sample_data: &[u8],
+    ) -> Result<Document<CarnavalheistPs>> {
+        let sha256sum = digest(sample_data);
+
+        let ps_node_data = CarnavalheistPs {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: ps_node,
+            created,
+        } = self.upsert_node::<CarnavalheistPs>(ps_node_data, "sha256sum", &sha256sum)?;
+
+        // Sample is already in DB => no need for further analysis
+        if !created {
+            return Ok(ps_node);
+        }
+
+        // TODO: extract next stage (python)
+
+        Ok(ps_node)
     }
 }
 
