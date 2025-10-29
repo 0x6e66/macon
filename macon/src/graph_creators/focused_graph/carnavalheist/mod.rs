@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use arangors::{Document, collection::CollectionType};
+use arangors::Document;
 use base64::{
     Engine, alphabet,
     engine::{GeneralPurpose, general_purpose::PAD},
@@ -16,7 +16,7 @@ use indicatif::ParallelProgressIterator;
 use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::{ensure_collection, ensure_index},
+    utils::ensure_index,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;

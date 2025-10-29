@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use arangors::{Document, collection::CollectionType};
+use arangors::Document;
 use base64::{
     Engine, alphabet,
     engine::{GeneralPurpose, general_purpose::PAD},
@@ -17,7 +17,7 @@ use indicatif::ParallelProgressIterator;
 use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::{ensure_collection, ensure_index},
+    utils::ensure_index,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
@@ -40,11 +40,11 @@ use crate::{
 lazy_static! {
     static ref RE_FUNCTION: Regex = {
         let s = r#"function\s+(?<function>[A-z0-9]+)\s+\{param\([^\)]+\)"#;
-        Regex::new(&s).unwrap()
+        Regex::new(s).unwrap()
     };
     static ref RE_KEY: Regex = {
         let s = r#"\("(?<key>[A-z0-9]{12})"\)"#;
-        Regex::new(&s).unwrap()
+        Regex::new(s).unwrap()
     };
 }
 

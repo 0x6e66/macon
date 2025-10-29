@@ -7,11 +7,11 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use arangors::{Document, collection::CollectionType};
+use arangors::Document;
 use indicatif::ParallelProgressIterator;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::{ensure_collection, ensure_index},
+    utils::ensure_index,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
