@@ -16,7 +16,7 @@ use indicatif::ParallelProgressIterator;
 use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::ensure_collection,
+    utils::{ensure_collection, ensure_index},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
@@ -42,19 +42,13 @@ impl FocusedGraph {
         files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
     ) -> Result<()> {
-        let idxs = Some(vec!["sha256sum".into()]);
         let db = self.get_db();
+        let idx = vec!["sha256sum".to_string()];
 
-        // Nodes
-        ensure_collection::<Carnavalheist>(db, CollectionType::Document, None)?;
-        ensure_collection::<CarnavalheistBatch>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<CarnavalheistPs>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<CarnavalheistPython>(db, CollectionType::Document, idxs)?;
-
-        // Edges
-        ensure_collection::<CarnavalheistHasBatch>(db, CollectionType::Edge, None)?;
-        ensure_collection::<CarnavalheistHasPs>(db, CollectionType::Edge, None)?;
-        ensure_collection::<CarnavalheistHasPython>(db, CollectionType::Edge, None)?;
+        // Create index for sha256sum field
+        ensure_index::<CarnavalheistBatch>(db, idx.clone())?;
+        ensure_index::<CarnavalheistPs>(db, idx.clone())?;
+        ensure_index::<CarnavalheistPython>(db, idx)?;
 
         let main_node = self.carnavalheist_create_main_node(corpus_node)?;
 
@@ -126,10 +120,14 @@ impl FocusedGraph {
                     &batch_node,
                 )?;
             }
-            Some(SampleType::BatchCommandNormal) => (), //todo!(),
-            Some(SampleType::BatchCommandConcat) => (), //todo!(),
-            Some(SampleType::Ps) => (),                 //todo!(),
-            Some(SampleType::Python) => (),             //todo!(),
+            Some(SampleType::BatchCommandNormal) => {
+                println!("{sample_filename}: BatchCommandNormal (not implemented)")
+            }
+            Some(SampleType::BatchCommandConcat) => {
+                println!("{sample_filename}: BatchCommandConcat (not implemented)")
+            }
+            Some(SampleType::Ps) => println!("{sample_filename}: Ps (not implemented)"),
+            Some(SampleType::Python) => println!("{sample_filename}: Python (not implemented)"),
             None => {
                 return Err(anyhow!(
                     "Sample type of the sample {sample_filename} could not be detected"
@@ -165,19 +163,18 @@ impl FocusedGraph {
 
         let start = sample_str
             .find("powershell -WindowStyle Hidden -e")
-            .ok_or(anyhow!("Could not find next stage in batch file"))?
+            .ok_or(anyhow!("Could not find next stage in batch stage"))?
             + 34;
 
         let end = sample_str[start..]
             .find(char::is_whitespace)
-            .ok_or(anyhow!("Could not find next stage in batch file"))?
+            .ok_or(anyhow!("Could not find next stage in batch stage"))?
             + start;
 
         let ps_base64_encoded = sample_str[start..end].as_bytes();
-        let tmp = BASE64_DECODER.decode(ps_base64_encoded)?;
-        let ps_base64_decoded = get_string_from_binary(&tmp);
+        let ps_base64_decoded = BASE64_DECODER.decode(ps_base64_encoded)?;
 
-        let ps_node = self.carnavalheist_create_ps_node(ps_base64_decoded.as_bytes())?;
+        let ps_node = self.carnavalheist_create_ps_node(&ps_base64_decoded)?;
         self.upsert_edge::<CarnavalheistBatch, CarnavalheistPs, CarnavalheistHasPs>(
             &batch_node,
             &ps_node,

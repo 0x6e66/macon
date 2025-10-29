@@ -17,7 +17,7 @@ use indicatif::ParallelProgressIterator;
 use lazy_static::lazy_static;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::ensure_collection,
+    utils::{ensure_collection, ensure_index},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
@@ -54,25 +54,16 @@ impl FocusedGraph {
         files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
     ) -> Result<()> {
-        let idxs = Some(vec!["sha256sum".into()]);
         let db = self.get_db();
+        let idx = vec!["sha256sum".to_string()];
 
-        // Nodes
-        ensure_collection::<Mintsloader>(db, CollectionType::Document, None)?;
-        ensure_collection::<MintsloaderPsXorBase64>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderPsDgaIex>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderPsStartProcess>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderPsTwoLiner>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderJava>(db, CollectionType::Document, idxs.clone())?;
-        ensure_collection::<MintsloaderX509Cert>(db, CollectionType::Document, idxs)?;
-
-        // Edges
-        ensure_collection::<MintsloaderHasPsXorBase64>(db, CollectionType::Edge, None)?;
-        ensure_collection::<MintsloaderHasPsDgaIex>(db, CollectionType::Edge, None)?;
-        ensure_collection::<MintsloaderHasPsStartProcess>(db, CollectionType::Edge, None)?;
-        ensure_collection::<MintsloaderHasPsTwoLiner>(db, CollectionType::Edge, None)?;
-        ensure_collection::<MintsloaderHasJava>(db, CollectionType::Edge, None)?;
-        ensure_collection::<MintsloaderHasX509Cert>(db, CollectionType::Edge, None)?;
+        // Create index for sha256sum field
+        ensure_index::<MintsloaderPsXorBase64>(db, idx.clone())?;
+        ensure_index::<MintsloaderPsDgaIex>(db, idx.clone())?;
+        ensure_index::<MintsloaderPsStartProcess>(db, idx.clone())?;
+        ensure_index::<MintsloaderPsTwoLiner>(db, idx.clone())?;
+        ensure_index::<MintsloaderJava>(db, idx.clone())?;
+        ensure_index::<MintsloaderX509Cert>(db, idx)?;
 
         let main_node = self.mintsloader_create_main_node(corpus_node)?;
 

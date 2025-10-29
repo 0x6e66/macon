@@ -11,7 +11,7 @@ use arangors::{Document, collection::CollectionType};
 use indicatif::ParallelProgressIterator;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
-    utils::ensure_collection,
+    utils::{ensure_collection, ensure_index},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha256::digest;
@@ -34,20 +34,13 @@ impl FocusedGraph {
         files: &[PathBuf],
         corpus_node: &Document<FocusedCorpus>,
     ) -> Result<()> {
-        let sha_index_fields = Some(vec!["sha256sum".into()]);
-
         let db = self.get_db();
+        let idx = vec!["sha256sum".to_string()];
 
-        // create collections for all nodes
-        ensure_collection::<Coper>(db, CollectionType::Document, None)?;
-        ensure_collection::<CoperAPK>(db, CollectionType::Document, sha_index_fields.clone())?;
-        ensure_collection::<CoperELF>(db, CollectionType::Document, sha_index_fields.clone())?;
-        ensure_collection::<CoperDEX>(db, CollectionType::Document, sha_index_fields)?;
-
-        // create collections for all edges
-        ensure_collection::<CoperHasAPK>(db, CollectionType::Edge, None)?;
-        ensure_collection::<CoperHasELF>(db, CollectionType::Edge, None)?;
-        ensure_collection::<CoperHasDEX>(db, CollectionType::Edge, None)?;
+        // Create index for sha256sum field
+        ensure_index::<CoperAPK>(db, idx.clone())?;
+        ensure_index::<CoperELF>(db, idx.clone())?;
+        ensure_index::<CoperDEX>(db, idx)?;
 
         let main_node = self.coper_create_main_node(corpus_node)?;
 
