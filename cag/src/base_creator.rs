@@ -34,17 +34,10 @@ pub trait GraphCreatorBase {
         CollType: DeserializeOwned + Serialize + Clone + JsonSchema,
     {
         let collection_name = get_name::<CollType>();
+        let coll = self.get_db().collection(&collection_name)?;
 
-        let db = self.get_db();
-        let coll = db.collection(&collection_name)?;
-
-        let doc_res = coll.create_document::<CollType>(
-            data,
-            InsertOptions::builder()
-                .return_new(true)
-                .overwrite(true)
-                .build(),
-        )?;
+        let doc_res = coll
+            .create_document::<CollType>(data, InsertOptions::builder().return_new(true).build())?;
 
         let doc = handle_document_response(doc_res)?;
         Ok(doc)
@@ -59,28 +52,20 @@ pub trait GraphCreatorBase {
     where
         CollType: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
     {
-        // check if document is already in DB
-        match self.get_document::<CollType>(alt_key, alt_val) {
-            // document is not in DB
-            Err(Error::DocumentNotFound(_)) => {
-                // create new document in collection `CollType`
-                let doc: Document<CollType> = self.create_vertex::<CollType>(data)?;
-
-                // return new document
+        match self.create_vertex::<CollType>(data) {
+            Ok(document) => Ok(UpsertResult {
+                document,
+                created: true,
+            }),
+            // check if error type is "ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED"
+            Err(Error::ArangoClientError(ClientError::Arango(e))) if e.error_num() == 1210 => {
+                let document = self.get_document::<CollType>(alt_key, alt_val)?;
                 Ok(UpsertResult {
-                    document: doc,
-                    created: true,
+                    document,
+                    created: false,
                 })
             }
-
-            // other error
             Err(e) => Err(e),
-
-            // document was found in DB, return old document
-            Ok(doc) => Ok(UpsertResult {
-                document: doc,
-                created: false,
-            }),
         }
     }
 

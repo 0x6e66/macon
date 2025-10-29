@@ -22,7 +22,7 @@ pub fn establish_database_connection(config: &Config) -> Result<Connection> {
     }
 }
 
-fn ensure_index<CollType>(db: &Database, fields: Vec<String>) -> Result<Index>
+pub fn ensure_index<CollType>(db: &Database, fields: Vec<String>) -> Result<Index>
 where
     CollType: JsonSchema,
 {
@@ -62,6 +62,9 @@ where
     let collection_name = get_name::<CollType>();
 
     if let Ok(collection) = db.collection(&collection_name) {
+        if let Some(fields) = index_fields {
+            ensure_index::<CollType>(db, fields)?;
+        }
         return Ok(collection);
     }
 
