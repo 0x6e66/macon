@@ -58,7 +58,9 @@ pub trait GraphCreatorBase {
                 created: true,
             }),
             // check if error type is "ERROR_ARANGO_UNIQUE_CONSTRAINT_VIOLATED"
-            Err(Error::ArangoClientError(ClientError::Arango(e))) if e.error_num() == 1210 => {
+            Err(Error::ArangoClientError(ClientError::Arango(e)))
+                if [1200, 1210].contains(&e.error_num()) =>
+            {
                 let document = self.get_document::<CollType>(alt_key, alt_val)?;
                 Ok(UpsertResult {
                     document,
