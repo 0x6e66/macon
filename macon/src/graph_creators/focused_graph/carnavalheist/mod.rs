@@ -203,9 +203,51 @@ impl FocusedGraph {
             return Ok(ps_node);
         }
 
-        // TODO: extract next stage (python)
+        // extract next stage (python)
+        let sample_str = get_string_from_binary(sample_data);
+
+        let start = sample_str
+            .find("base64.b64decode(\'")
+            .ok_or(anyhow!("Could not find next stage in ps stage"))?
+            + 18;
+        let start = sample_str[start..]
+            .find(|c| c != '\'')
+            .ok_or(anyhow!("Could not find next stage in ps stage"))?
+            + start;
+
+        let end = sample_str[start..]
+            .find("'")
+            .ok_or(anyhow!("Could not find next stage in ps stage"))?
+            + start;
+
+        let python_base64_encoded = &sample_str[start..end].as_bytes();
+        let python_base64_decoded = BASE64_DECODER.decode(python_base64_encoded)?;
+
+        let python_node = self.carnavalheist_create_python_node(&python_base64_decoded)?;
+        self.upsert_edge::<CarnavalheistPs, CarnavalheistPython, CarnavalheistHasPython>(
+            &ps_node,
+            &python_node,
+        )?;
 
         Ok(ps_node)
+    }
+
+    fn carnavalheist_create_python_node(
+        &self,
+        sample_data: &[u8],
+    ) -> Result<Document<CarnavalheistPython>> {
+        let sha256sum = digest(sample_data);
+
+        let python_node_data = CarnavalheistPython {
+            sha256sum: sha256sum.clone(),
+        };
+
+        let UpsertResult {
+            document: python_node,
+            created: _,
+        } = self.upsert_node::<CarnavalheistPython>(python_node_data, "sha256sum", &sha256sum)?;
+
+        Ok(python_node)
     }
 }
 
