@@ -114,14 +114,20 @@ impl FocusedGraph {
     ) -> Result<()> {
         match detect_sample_type(sample_data) {
             Some(SampleType::BatchE) => {
-                let batch_node = self.carnavalheist_create_batch_node(sample_data)?;
+                let batch_node =
+                    self.carnavalheist_create_batch_node(sample_data, SampleType::BatchE)?;
                 self.upsert_edge::<Carnavalheist, CarnavalheistBatch, CarnavalheistHasBatch>(
                     main_node,
                     &batch_node,
                 )?;
             }
             Some(SampleType::BatchCommandNormal) => {
-                println!("{sample_filename}: BatchCommandNormal (not implemented)")
+                let batch_node = self
+                    .carnavalheist_create_batch_node(sample_data, SampleType::BatchCommandNormal)?;
+                self.upsert_edge::<Carnavalheist, CarnavalheistBatch, CarnavalheistHasBatch>(
+                    main_node,
+                    &batch_node,
+                )?;
             }
             Some(SampleType::BatchCommandConcat) => {
                 println!("{sample_filename}: BatchCommandConcat (not implemented)")
@@ -141,6 +147,7 @@ impl FocusedGraph {
     fn carnavalheist_create_batch_node(
         &self,
         sample_data: &[u8],
+        sample_type: SampleType,
     ) -> Result<Document<CarnavalheistBatch>> {
         let sha256sum = digest(sample_data);
 
@@ -161,20 +168,14 @@ impl FocusedGraph {
         // extract next stage
         let sample_str = get_string_from_binary(sample_data);
 
-        let start = sample_str
-            .find("powershell -WindowStyle Hidden -e")
-            .ok_or(anyhow!("Could not find next stage in batch stage"))?
-            + 34;
+        let ps_stage = match sample_type {
+            SampleType::BatchE => extract_from_batch_e(&sample_str)?,
+            SampleType::BatchCommandNormal => extract_from_batch_command_normal(&sample_str)?,
+            // SampleType::BatchCommandConcat => extract_from_batch_command_concat(&sample_str)?,
+            _ => return Err(anyhow!("wrong sample type")),
+        };
 
-        let end = sample_str[start..]
-            .find(char::is_whitespace)
-            .ok_or(anyhow!("Could not find next stage in batch stage"))?
-            + start;
-
-        let ps_base64_encoded = sample_str[start..end].as_bytes();
-        let ps_base64_decoded = BASE64_DECODER.decode(ps_base64_encoded)?;
-
-        let ps_node = self.carnavalheist_create_ps_node(&ps_base64_decoded)?;
+        let ps_node = self.carnavalheist_create_ps_node(&ps_stage)?;
         self.upsert_edge::<CarnavalheistBatch, CarnavalheistPs, CarnavalheistHasPs>(
             &batch_node,
             &ps_node,
@@ -206,24 +207,38 @@ impl FocusedGraph {
         // extract next stage (python)
         let sample_str = get_string_from_binary(sample_data);
 
+        // account for two variants
+        //  1. `base64.b64decode(''''BASE64_ENCODED_STRING''')`
+        //  2. `base64.b64decode(r'''BASE64_ENCODED_STRING''')`
         let start = sample_str
             .find("base64.b64decode(\'")
-            .ok_or(anyhow!("Could not find next stage in ps stage"))?
-            + 18;
+            .and_then(|l| Some(l + 18))
+            .or(sample_str
+                .find("base64.b64decode(r\'")
+                .and_then(|l| Some(l + 19)))
+            .ok_or(anyhow!("Could not find next stage in ps stage"))?;
+
+        // find start of base64 encoded string
         let start = sample_str[start..]
             .find(|c| c != '\'')
             .ok_or(anyhow!("Could not find next stage in ps stage"))?
             + start;
 
+        // find end of base64 encoded string
         let end = sample_str[start..]
             .find("'")
             .ok_or(anyhow!("Could not find next stage in ps stage"))?
             + start;
 
-        let python_base64_encoded = &sample_str[start..end].as_bytes();
-        let python_base64_decoded = BASE64_DECODER.decode(python_base64_encoded)?;
+        let mut python_base64 = sample_str[start..end].as_bytes().to_vec();
 
-        let python_node = self.carnavalheist_create_python_node(&python_base64_decoded)?;
+        // account for multiple times of encoding
+        let times_encoded = sample_str.matches("base64.b64decode(").count();
+        for _ in 0..times_encoded {
+            python_base64 = BASE64_DECODER.decode(&python_base64)?;
+        }
+
+        let python_node = self.carnavalheist_create_python_node(&python_base64)?;
         self.upsert_edge::<CarnavalheistPs, CarnavalheistPython, CarnavalheistHasPython>(
             &ps_node,
             &python_node,
@@ -257,6 +272,61 @@ enum SampleType {
     BatchCommandConcat,
     Ps,
     Python,
+}
+
+fn extract_from_batch_e(sample_str: &str) -> Result<Vec<u8>> {
+    let tmp = "powershell -WindowStyle Hidden -e";
+    let start = sample_str
+        .find(tmp)
+        .ok_or(anyhow!("Could not find next stage in batch stage"))?
+        + tmp.len()
+        + 1;
+
+    let end = sample_str[start..]
+        .find(char::is_whitespace)
+        .ok_or(anyhow!("Could not find next stage in batch stage"))?
+        + start;
+
+    let ps_base64_encoded = sample_str[start..end].as_bytes();
+    let ps_base64_decoded = BASE64_DECODER.decode(ps_base64_encoded)?;
+
+    Ok(ps_base64_decoded)
+}
+
+fn extract_from_batch_command_normal(sample_str: &str) -> Result<Vec<u8>> {
+    let tmp = "powershell -WindowStyle Hidden -Command \"& {";
+    let start = sample_str
+        .find(tmp)
+        .ok_or(anyhow!("Could not find next stage in batch stage"))?
+        + tmp.len()
+        + 1;
+
+    let mut pos = 1;
+    let mut end = start;
+
+    // // indicates that obfuscated_string is not ascii, because char boundary was crossed
+    let mut failed = false;
+    while pos != 0 && end < sample_str.len() {
+        // check is char boundary gets crossed
+        if !(sample_str.is_char_boundary(end) && sample_str.is_char_boundary(end + 1)) {
+            failed = true;
+            break;
+        }
+
+        if &sample_str[end..end + 1] == "{" {
+            pos += 1;
+        }
+        if &sample_str[end..end + 1] == "}" {
+            pos -= 1;
+        }
+        end += 1;
+    }
+
+    if failed {
+        return Err(anyhow!("Could not find next stage in batch stage"));
+    }
+
+    Ok(sample_str[start..end - 1].as_bytes().to_vec())
 }
 
 fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {

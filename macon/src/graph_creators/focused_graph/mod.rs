@@ -5,14 +5,13 @@ pub mod mintsloader;
 use std::{fmt::Debug, path::PathBuf};
 
 use anyhow::Result;
-use arangors::{Document, collection::CollectionType, graph::EdgeDefinition};
+use arangors::{Document, graph::EdgeDefinition};
 use macon_cag::{
     base_creator::GraphCreatorBase,
     impl_edge_attributes,
     prelude::Database,
     utils::{
-        config::Config, ensure_collection, ensure_database, ensure_graph,
-        establish_database_connection, get_name,
+        config::Config, ensure_database, ensure_graph, establish_database_connection, get_name,
     },
 };
 use schemars::JsonSchema;
@@ -111,10 +110,6 @@ impl GraphCreatorBase for FocusedGraph {
     where
         T: DeserializeOwned + Serialize + Clone + JsonSchema + Debug,
     {
-        // Base Nodes and Edges
-        ensure_collection::<FocusedCorpus>(&self.db, CollectionType::Document, None)?;
-        ensure_collection::<HasMalwareFamily>(&self.db, CollectionType::Edge, None)?;
-
         let _ = ensure_graph(&self.db, &config.graph, edge_definitions)?;
 
         // create corpus node
