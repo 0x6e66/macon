@@ -13,7 +13,7 @@ if [ -z $arangodb_container_id ]; then
         echo ""
     fi
 
-    docker run -d -p 8532:8532 -e $arango_auth --name arangodb-instance arangodb
+    docker run -d -p 8529:8529 -e $arango_auth --name arangodb-instance arangodb
 else
     docker start $arangodb_container_id
 fi
