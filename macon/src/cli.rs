@@ -2,45 +2,62 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::classifier::MalwareFamiliy;
-
 #[derive(Parser, Debug)]
-#[command(
-    name = "macon",
-    version,
-    about = "Malware Corpus Normalization",
-    long_about = ""
-)]
+#[command(name = "macon", version, about = "Malware Corpus Normalization")]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: MainCommands,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Commands {
+pub enum MainCommands {
     #[command(
-        about = "Pass the sample directly",
-        long_about = "With this command the sample has to be passed directly"
+        subcommand,
+        about = "Analyze malware samples where the family is already known"
     )]
-    Focused(FocusedArgs),
+    Focused(FocusedFamilies),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum FocusedFamilies {
+    #[command(about = "Analyze sample from the Carnavalheist malware")]
+    Carnavalheist(MainArgs),
+    #[command(about = "Analyze sample from the Coper malware")]
+    Coper(MainArgs),
+    #[command(
+        about = "Analyze sample from the DarkHorsemen malware.\nWARNING: This will run the provided samples in a VM"
+    )]
+    DarkWatchmen(VMArgs),
+    #[command(about = "Analyze sample from the Mintsloader malware")]
+    Mintsloader(MainArgs),
 }
 
 #[derive(Args, Debug)]
-pub struct FocusedArgs {
+pub struct MainArgs {
     #[arg(
         value_parser = validate_file,
         help = "Path to the sample(s)",
         long_help = "Set the path to the sample(s) you want to analyze"
     )]
     pub files: Vec<PathBuf>,
+}
 
-    #[arg(
-        short,
-        long,
-        value_enum,
-        help = "Specify the malware family of the sample(s) you are trying to analyze"
-    )]
-    pub family: MalwareFamiliy,
+#[derive(Args, Debug)]
+pub struct VMArgs {
+    #[clap(flatten)]
+    pub main_args: MainArgs,
+
+    #[arg(help = "Name of the VM", short, long)]
+    pub vm_name: String,
+
+    #[arg(help = "Username of the VM", short, long)]
+    pub vm_user: String,
+
+    #[arg(help = "Password associated with the user", short, long)]
+    pub vm_pass: String,
+
+    #[arg(help = "Path of the shared directory on the host", short, long, value_parser = validate_dir)]
+    pub shared_dir: PathBuf,
 }
 
 fn validate_file(s: &str) -> Result<PathBuf, String> {
@@ -50,6 +67,18 @@ fn validate_file(s: &str) -> Result<PathBuf, String> {
         return Err("The path does not exists".to_string());
     } else if !pathbuf.is_file() {
         return Err("The specified path is either not a file, permissions are missing or symbolic links are broken".to_string());
+    }
+
+    Ok(pathbuf)
+}
+
+fn validate_dir(s: &str) -> Result<PathBuf, String> {
+    let pathbuf = PathBuf::from(s);
+
+    if !pathbuf.exists() {
+        return Err("The path does not exists".to_string());
+    } else if pathbuf.is_file() {
+        return Err("The specified path is either not a directory, permissions are missing or symbolic links are broken".to_string());
     }
 
     Ok(pathbuf)
