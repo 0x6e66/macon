@@ -214,10 +214,8 @@ impl FocusedGraph {
         //  2. `base64.b64decode(r'''BASE64_ENCODED_STRING''')`
         let start = sample_str
             .find("base64.b64decode(\'")
-            .and_then(|l| Some(l + 18))
-            .or(sample_str
-                .find("base64.b64decode(r\'")
-                .and_then(|l| Some(l + 19)))
+            .map(|l| l + 18)
+            .or(sample_str.find("base64.b64decode(r\'").map(|l| l + 19))
             .ok_or(anyhow!("Could not find next stage in ps stage"))?;
 
         // find start of base64 encoded string

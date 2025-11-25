@@ -3,7 +3,7 @@ pub mod coper;
 pub mod dark_watchmen;
 pub mod mintsloader;
 
-use std::{fmt::Debug, path::PathBuf};
+use std::fmt::Debug;
 
 use anyhow::Result;
 use arangors::{Document, graph::EdgeDefinition};
@@ -20,7 +20,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    cli::{FocusedFamilies, MainArgs, VMArgs},
+    cli::{FocusedFamilies, MainArgs},
     graph_creators::focused_graph::{
         carnavalheist::nodes::{Carnavalheist, carnavalheist_edge_definitions},
         coper::nodes::{Coper, coper_edge_definitions},
@@ -101,20 +101,7 @@ pub fn focused_graph_main(focused_families: FocusedFamilies) -> Result<()> {
             gc.carnavalheist_main(&files, &corpus_node)?
         }
         FocusedFamilies::Coper(MainArgs { files }) => gc.coper_main(&files, &corpus_node)?,
-        FocusedFamilies::DarkWatchmen(VMArgs {
-            main_args: MainArgs { files },
-            vm_name,
-            vm_user,
-            vm_pass,
-            shared_dir,
-        }) => gc.dark_watchmen_main(
-            &files,
-            &corpus_node,
-            &vm_name,
-            &vm_user,
-            &vm_pass,
-            &shared_dir,
-        )?,
+        FocusedFamilies::DarkWatchmen(vm_args) => gc.dark_watchmen_main(&vm_args, &corpus_node)?,
         FocusedFamilies::Mintsloader(MainArgs { files }) => {
             gc.mintsloader_main(&files, &corpus_node)?
         }

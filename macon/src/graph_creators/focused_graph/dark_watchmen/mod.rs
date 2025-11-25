@@ -1,23 +1,25 @@
 use std::{
     fs::{File, remove_file},
     io::{Read, Write},
-    path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::{Result, anyhow};
 use arangors::Document;
-use indicatif::{ParallelProgressIterator, ProgressIterator};
+use indicatif::ProgressIterator;
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_index,
 };
 use sha256::digest;
 
-use crate::graph_creators::focused_graph::{
-    FocusedCorpus, FocusedGraph, HasMalwareFamily,
-    dark_watchmen::nodes::{
-        DarkWatchmen, DarkWatchmenHasJS, DarkWatchmenHasPE, DarkWatchmenJS, DarkWatchmenPE,
+use crate::{
+    cli::VMArgs,
+    graph_creators::focused_graph::{
+        FocusedCorpus, FocusedGraph, HasMalwareFamily,
+        dark_watchmen::nodes::{
+            DarkWatchmen, DarkWatchmenHasJS, DarkWatchmenHasPE, DarkWatchmenJS, DarkWatchmenPE,
+        },
     },
 };
 
@@ -26,12 +28,8 @@ pub mod nodes;
 impl FocusedGraph {
     pub fn dark_watchmen_main(
         &self,
-        files: &[PathBuf],
+        vm_args: &VMArgs,
         corpus_node: &Document<FocusedCorpus>,
-        vm_name: &str,
-        vm_user: &str,
-        vm_pass: &str,
-        shared_dir_path: &Path,
     ) -> Result<()> {
         let db = self.get_db();
         let idx = vec!["sha256sum".to_string()];
@@ -44,10 +42,8 @@ impl FocusedGraph {
 
         let mut errors = Vec::new();
 
-        files
-            .iter()
-            .progress()
-            .for_each(|entry| match std::fs::File::open(entry) {
+        vm_args.main_args.files.iter().progress().for_each(|entry| {
+            match std::fs::File::open(entry) {
                 Ok(mut file) => {
                     let mut buf = Vec::new();
                     match file.read_to_end(&mut buf) {
@@ -56,10 +52,7 @@ impl FocusedGraph {
                                 &format!("{entry:?}"),
                                 &buf,
                                 &main_node,
-                                vm_name,
-                                vm_user,
-                                vm_pass,
-                                shared_dir_path,
+                                vm_args,
                             ) {
                                 Ok(_) => (),
                                 Err(e) => errors.push(e),
@@ -69,7 +62,8 @@ impl FocusedGraph {
                     }
                 }
                 Err(e) => errors.push(e.into()),
-            });
+            }
+        });
 
         for e in errors.iter() {
             eprintln!("{e}");
@@ -102,20 +96,11 @@ impl FocusedGraph {
         sample_filename: &str,
         sample_data: &[u8],
         main_node: &Document<DarkWatchmen>,
-        vm_name: &str,
-        vm_user: &str,
-        vm_pass: &str,
-        shared_dir_path: &Path,
+        vm_args: &VMArgs,
     ) -> Result<()> {
         match detect_sample_type(sample_data) {
             Some(SampleType::PE) => {
-                let pe_node = self.dark_watchmen_create_pe_node(
-                    sample_data,
-                    vm_name,
-                    vm_user,
-                    vm_pass,
-                    shared_dir_path,
-                )?;
+                let pe_node = self.dark_watchmen_create_pe_node(sample_data, vm_args)?;
                 self.upsert_edge::<DarkWatchmen, DarkWatchmenPE, DarkWatchmenHasPE>(
                     main_node, &pe_node,
                 )?;
@@ -136,10 +121,7 @@ impl FocusedGraph {
     fn dark_watchmen_create_pe_node(
         &self,
         sample_data: &[u8],
-        vm_name: &str,
-        vm_user: &str,
-        vm_pass: &str,
-        shared_dir_path: &Path,
+        vm_args: &VMArgs,
     ) -> Result<Document<DarkWatchmenPE>> {
         let sha256sum = digest(sample_data);
 
@@ -149,8 +131,7 @@ impl FocusedGraph {
 
         // Intentionally out of regular order to prevent PEs from being created without their JS
         // stage if the extraction fails
-        let js_data =
-            get_js_from_pe_dynamically(sample_data, vm_name, vm_user, vm_pass, shared_dir_path)?;
+        let js_data = get_js_from_pe_dynamically(sample_data, vm_args)?;
 
         let UpsertResult {
             document: pe_node,
@@ -195,10 +176,11 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
     }
 
     // check of PE magic numbers
-    if &sample_data[0..2] == &[0x4D, 0x5A] || &sample_data[0..4] == &[0x50, 0x45, 0x00, 0x00] {
-        return Some(SampleType::PE);
+    if sample_data[0..2] == [0x4D, 0x5A] || sample_data[0..4] == [0x50, 0x45, 0x00, 0x00] {
+        Some(SampleType::PE)
+    // TODO: implement check for js stage
     } else {
-        return Some(SampleType::JS);
+        Some(SampleType::JS)
     }
 }
 
@@ -228,17 +210,19 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
 ///     3. **Disable Windows Updates:**
 ///        - Press `Windows + R`, type `services.msc`, and press `Enter`.
 ///        - Find the **"Windows Update"** service, double-click it, and change the **"Startup type"** to **"Disabled"**. Click **"Apply"** and **"OK"**.
-fn get_js_from_pe_dynamically(
-    sample_data: &[u8],
-    vm_name: &str,
-    vm_user: &str,
-    vm_pass: &str,
-    shared_dir_path: &Path,
-) -> Result<Vec<u8>> {
+fn get_js_from_pe_dynamically(sample_data: &[u8], vm_args: &VMArgs) -> Result<Vec<u8>> {
+    let VMArgs {
+        main_args: _,
+        vm_name,
+        vm_user,
+        vm_pass,
+        shared_dir,
+    } = vm_args;
+
     // Write the sample_data to a file in the shared directory on the host
-    let mal_path = shared_dir_path.join("mal.exe");
+    let mal_path = shared_dir.join("mal.exe");
     let mut mal = File::create(&mal_path)?;
-    mal.write(sample_data)?;
+    mal.write_all(sample_data)?;
 
     // execute the malware sample inside the VM
     let _ = Command::new("VBoxManage")
@@ -272,7 +256,7 @@ fn get_js_from_pe_dynamically(
         .args(["-Destination", r"T:\dropped.js"])
         .output();
 
-    let dropped_js_path = shared_dir_path.join("dropped.js");
+    let dropped_js_path = shared_dir.join("dropped.js");
 
     let mut js_file = File::open(&dropped_js_path)?;
     let mut js_sample_data = vec![];
