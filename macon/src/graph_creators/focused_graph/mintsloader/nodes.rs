@@ -10,51 +10,24 @@ pub struct Mintsloader {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderHasPsXorBase64 {
+pub struct MintsloaderHasPs {
     pub _key: String,
     pub _from: String,
     pub _to: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderPsXorBase64 {
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub struct MintsloaderPs {
     pub sha256sum: String,
+    pub kind: MintsloaderPsKind,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderHasPsDgaIex {
-    pub _key: String,
-    pub _from: String,
-    pub _to: String,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderPsDgaIex {
-    pub sha256sum: String,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderHasPsStartProcess {
-    pub _key: String,
-    pub _from: String,
-    pub _to: String,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderPsStartProcess {
-    pub sha256sum: String,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderHasPsTwoLiner {
-    pub _key: String,
-    pub _from: String,
-    pub _to: String,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderPsTwoLiner {
-    pub sha256sum: String,
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub enum MintsloaderPsKind {
+    XorBase64,
+    DgaIex,
+    StartProcess,
+    TwoLiner,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
@@ -81,49 +54,25 @@ pub struct MintsloaderX509Cert {
     pub sha256sum: String,
 }
 
-impl_edge_attributes!(MintsloaderHasPsXorBase64);
-impl_edge_attributes!(MintsloaderHasPsDgaIex);
-impl_edge_attributes!(MintsloaderHasPsStartProcess);
-impl_edge_attributes!(MintsloaderHasPsTwoLiner);
+impl_edge_attributes!(MintsloaderHasPs);
 impl_edge_attributes!(MintsloaderHasJava);
 impl_edge_attributes!(MintsloaderHasX509Cert);
 
 pub fn mintsloader_edge_definitions() -> Vec<EdgeDefinition> {
     vec![
         EdgeDefinition {
-            collection: get_name::<MintsloaderHasPsXorBase64>(),
-            from: vec![get_name::<Mintsloader>()],
-            to: vec![get_name::<MintsloaderPsXorBase64>()],
-        },
-        EdgeDefinition {
-            collection: get_name::<MintsloaderHasPsDgaIex>(),
-            from: vec![get_name::<MintsloaderPsXorBase64>()],
-            to: vec![get_name::<MintsloaderPsDgaIex>()],
-        },
-        EdgeDefinition {
-            collection: get_name::<MintsloaderHasPsStartProcess>(),
-            from: vec![get_name::<MintsloaderPsXorBase64>()],
-            to: vec![get_name::<MintsloaderPsStartProcess>()],
-        },
-        EdgeDefinition {
-            collection: get_name::<MintsloaderHasPsTwoLiner>(),
-            from: vec![get_name::<Mintsloader>()],
-            to: vec![get_name::<MintsloaderPsTwoLiner>()],
+            collection: get_name::<MintsloaderHasPs>(),
+            from: vec![get_name::<Mintsloader>(), get_name::<MintsloaderPs>()],
+            to: vec![get_name::<MintsloaderPs>()],
         },
         EdgeDefinition {
             collection: get_name::<MintsloaderHasJava>(),
-            from: vec![
-                get_name::<MintsloaderPsTwoLiner>(),
-                get_name::<MintsloaderPsXorBase64>(),
-            ],
+            from: vec![get_name::<MintsloaderPs>()],
             to: vec![get_name::<MintsloaderJava>()],
         },
         EdgeDefinition {
             collection: get_name::<MintsloaderHasX509Cert>(),
-            from: vec![
-                get_name::<MintsloaderPsTwoLiner>(),
-                get_name::<MintsloaderPsXorBase64>(),
-            ],
+            from: vec![get_name::<MintsloaderPs>()],
             to: vec![get_name::<MintsloaderX509Cert>()],
         },
     ]

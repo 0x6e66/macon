@@ -28,10 +28,8 @@ use crate::{
     graph_creators::focused_graph::{
         FocusedCorpus, FocusedGraph, HasMalwareFamily,
         mintsloader::nodes::{
-            Mintsloader, MintsloaderHasJava, MintsloaderHasPsDgaIex, MintsloaderHasPsStartProcess,
-            MintsloaderHasPsTwoLiner, MintsloaderHasPsXorBase64, MintsloaderHasX509Cert,
-            MintsloaderJava, MintsloaderPsDgaIex, MintsloaderPsStartProcess, MintsloaderPsTwoLiner,
-            MintsloaderPsXorBase64, MintsloaderX509Cert,
+            Mintsloader, MintsloaderHasJava, MintsloaderHasPs, MintsloaderHasX509Cert,
+            MintsloaderJava, MintsloaderPs, MintsloaderPsKind, MintsloaderX509Cert,
         },
     },
     utils::get_string_from_binary,
@@ -58,10 +56,7 @@ impl FocusedGraph {
         let idx = vec!["sha256sum".to_string()];
 
         // Create index for sha256sum field
-        ensure_index::<MintsloaderPsXorBase64>(db, idx.clone())?;
-        ensure_index::<MintsloaderPsDgaIex>(db, idx.clone())?;
-        ensure_index::<MintsloaderPsStartProcess>(db, idx.clone())?;
-        ensure_index::<MintsloaderPsTwoLiner>(db, idx.clone())?;
+        ensure_index::<MintsloaderPs>(db, idx.clone())?;
         ensure_index::<MintsloaderJava>(db, idx.clone())?;
         ensure_index::<MintsloaderX509Cert>(db, idx)?;
 
@@ -124,42 +119,43 @@ impl FocusedGraph {
         sample_data: &[u8],
         main_node: &Document<Mintsloader>,
     ) -> Result<()> {
-        match detect_sample_type(sample_data) {
-            Some(SampleType::PS_Xor_B64(xor_key, base64)) => {
-                let ps_xor_node =
-                    self.mintsloader_create_ps_xor_node(sample_data, &xor_key, &base64)?;
-                self.upsert_edge::<Mintsloader, MintsloaderPsXorBase64, MintsloaderHasPsXorBase64>(
-                    main_node,
-                    &ps_xor_node,
+        let Some(sample_type) = detect_sample_type(sample_data) else {
+            return Err(anyhow!(
+                "Sample type of the sample {sample_filename} could not be detected"
+            ));
+        };
+
+        match sample_type {
+            SampleType::PS(ps_kind) => {
+                let ps_node = self.mintsloader_create_ps_node(sample_data, ps_kind)?;
+                self.upsert_edge::<Mintsloader, MintsloaderPs, MintsloaderHasPs>(
+                    main_node, &ps_node,
                 )?;
             }
-            Some(SampleType::PS_DGA_iex) => {
-                self.mintsloader_create_ps_dga_iex_node(sample_data)?;
-            }
-            Some(SampleType::PS_Start_Process) => {
-                self.mintsloader_create_ps_start_process_node(sample_data)?;
-            }
-            Some(SampleType::PS_Two_Liner) => {
-                let ps_two_liner_node = self.mintsloader_create_ps_two_liner_node(sample_data)?;
-                self.upsert_edge::<Mintsloader, MintsloaderPsTwoLiner, MintsloaderHasPsTwoLiner>(
-                    main_node,
-                    &ps_two_liner_node,
-                )?;
-            }
-            Some(SampleType::Java) => {
+            SampleType::Java => {
                 self.mintsloader_create_java_node(sample_data)?;
             }
-            Some(SampleType::X509) => {
+            SampleType::X509 => {
                 self.mintsloader_create_x509_node(sample_data)?;
-            }
-            None => {
-                return Err(anyhow!(
-                    "Sample type of the sample {sample_filename} could not be detected"
-                ));
             }
         }
 
         Ok(())
+    }
+
+    fn mintsloader_create_ps_node(
+        &self,
+        sample_data: &[u8],
+        ps_kind: PSKind,
+    ) -> Result<Document<MintsloaderPs>> {
+        match ps_kind {
+            PSKind::Xor_B64(xor_key, base64) => {
+                self.mintsloader_create_ps_xor_node(sample_data, &xor_key, &base64)
+            }
+            PSKind::DGA_iex => self.mintsloader_create_ps_dga_iex_node(sample_data),
+            PSKind::Start_Process => self.mintsloader_create_ps_start_process_node(sample_data),
+            PSKind::Two_Liner => self.mintsloader_create_ps_two_liner_node(sample_data),
+        }
     }
 
     fn mintsloader_create_ps_xor_node(
@@ -167,17 +163,18 @@ impl FocusedGraph {
         sample_data: &[u8],
         xor_key: &str,
         base64: &str,
-    ) -> Result<Document<MintsloaderPsXorBase64>> {
+    ) -> Result<Document<MintsloaderPs>> {
         let sha256sum = digest(sample_data);
 
-        let ps_xor_data = MintsloaderPsXorBase64 {
+        let ps_xor_data = MintsloaderPs {
             sha256sum: sha256sum.clone(),
+            kind: MintsloaderPsKind::XorBase64,
         };
 
         let UpsertResult {
             document: ps_xor_node,
             created,
-        } = self.upsert_node::<MintsloaderPsXorBase64>(ps_xor_data, "sha256sum", &sha256sum)?;
+        } = self.upsert_node::<MintsloaderPs>(ps_xor_data, "sha256sum", &sha256sum)?;
 
         // Sample is already in DB => no need for further analysis
         if !created {
@@ -188,33 +185,21 @@ impl FocusedGraph {
         let next_stage = decode_base64_with_xor_key(xor_key, base64)?;
         if next_stage.contains("$executioncontext;") {
             let ps_dga_iex_node = self.mintsloader_create_ps_dga_iex_node(next_stage.as_bytes())?;
-            self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderPsDgaIex, MintsloaderHasPsDgaIex>(&ps_xor_node, &ps_dga_iex_node)?;
+            self.upsert_edge::<MintsloaderPs, MintsloaderPs, MintsloaderHasPs>(
+                &ps_xor_node,
+                &ps_dga_iex_node,
+            )?;
         } else if next_stage.contains("start-process powershell") {
             let ps_start_process_node =
                 self.mintsloader_create_ps_start_process_node(next_stage.as_bytes())?;
-            self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderPsStartProcess, MintsloaderHasPsStartProcess>(&ps_xor_node, &ps_start_process_node)?;
+            self.upsert_edge::<MintsloaderPs, MintsloaderPs, MintsloaderHasPs>(
+                &ps_xor_node,
+                &ps_start_process_node,
+            )?;
         }
 
         // check for java code snippet and X.509 certificate
-        let sample_str = get_string_from_binary(sample_data);
-        let strings = get_deobfuscated_strings_from_sample_sorted(&sample_str);
-        for i in 0..2 {
-            if let Some(string) = strings.get(i) {
-                if string.starts_with("MIIE") {
-                    let x509_node = self.mintsloader_create_x509_node(string.as_bytes())?;
-                    self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderX509Cert, MintsloaderHasX509Cert>(
-                        &ps_xor_node,
-                        &x509_node,
-                    )?;
-                } else if string.starts_with("using System") {
-                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
-                    self.upsert_edge::<MintsloaderPsXorBase64, MintsloaderJava, MintsloaderHasJava>(
-                        &ps_xor_node,
-                        &java_node,
-                    )?;
-                }
-            }
-        }
+        self.mintsloader_extract_java_and_cert_from_ps(sample_data, &ps_xor_node)?;
 
         Ok(ps_xor_node)
     }
@@ -222,17 +207,18 @@ impl FocusedGraph {
     fn mintsloader_create_ps_dga_iex_node(
         &self,
         sample_data: &[u8],
-    ) -> Result<Document<MintsloaderPsDgaIex>> {
+    ) -> Result<Document<MintsloaderPs>> {
         let sha256sum = digest(sample_data);
 
-        let ps_dga_iex_data = MintsloaderPsDgaIex {
+        let ps_dga_iex_data = MintsloaderPs {
             sha256sum: sha256sum.clone(),
+            kind: MintsloaderPsKind::DgaIex,
         };
 
         let UpsertResult {
             document: ps_dga_iex_node,
             created: _,
-        } = self.upsert_node::<MintsloaderPsDgaIex>(ps_dga_iex_data, "sha256sum", &sha256sum)?;
+        } = self.upsert_node::<MintsloaderPs>(ps_dga_iex_data, "sha256sum", &sha256sum)?;
 
         Ok(ps_dga_iex_node)
     }
@@ -240,21 +226,18 @@ impl FocusedGraph {
     fn mintsloader_create_ps_start_process_node(
         &self,
         sample_data: &[u8],
-    ) -> Result<Document<MintsloaderPsStartProcess>> {
+    ) -> Result<Document<MintsloaderPs>> {
         let sha256sum = digest(sample_data);
 
-        let ps_start_process_data = MintsloaderPsStartProcess {
+        let ps_start_process_data = MintsloaderPs {
             sha256sum: sha256sum.clone(),
+            kind: MintsloaderPsKind::StartProcess,
         };
 
         let UpsertResult {
             document: ps_start_process_node,
             created: _,
-        } = self.upsert_node::<MintsloaderPsStartProcess>(
-            ps_start_process_data,
-            "sha256sum",
-            &sha256sum,
-        )?;
+        } = self.upsert_node::<MintsloaderPs>(ps_start_process_data, "sha256sum", &sha256sum)?;
 
         Ok(ps_start_process_node)
     }
@@ -262,18 +245,18 @@ impl FocusedGraph {
     fn mintsloader_create_ps_two_liner_node(
         &self,
         sample_data: &[u8],
-    ) -> Result<Document<MintsloaderPsTwoLiner>> {
+    ) -> Result<Document<MintsloaderPs>> {
         let sha256sum = digest(sample_data);
 
-        let ps_two_liner_data = MintsloaderPsTwoLiner {
+        let ps_two_liner_data = MintsloaderPs {
             sha256sum: sha256sum.clone(),
+            kind: MintsloaderPsKind::TwoLiner,
         };
 
         let UpsertResult {
             document: ps_two_liner_node,
             created,
-        } =
-            self.upsert_node::<MintsloaderPsTwoLiner>(ps_two_liner_data, "sha256sum", &sha256sum)?;
+        } = self.upsert_node::<MintsloaderPs>(ps_two_liner_data, "sha256sum", &sha256sum)?;
 
         // Sample was not created => already in db => can be aborted here
         if !created {
@@ -281,25 +264,7 @@ impl FocusedGraph {
         }
 
         // check for java code snippet and X.509 certificate
-        let sample_str = get_string_from_binary(sample_data);
-        let strings = get_deobfuscated_strings_from_sample_sorted(&sample_str);
-        for i in 0..2 {
-            if let Some(string) = strings.get(i) {
-                if string.starts_with("MIIE") {
-                    let x509_node = self.mintsloader_create_x509_node(string.as_bytes())?;
-                    self.upsert_edge::<MintsloaderPsTwoLiner, MintsloaderX509Cert, MintsloaderHasX509Cert>(
-                        &ps_two_liner_node,
-                        &x509_node,
-                    )?;
-                } else if string.starts_with("using System") {
-                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
-                    self.upsert_edge::<MintsloaderPsTwoLiner, MintsloaderJava, MintsloaderHasJava>(
-                        &ps_two_liner_node,
-                        &java_node,
-                    )?;
-                }
-            }
-        }
+        self.mintsloader_extract_java_and_cert_from_ps(sample_data, &ps_two_liner_node)?;
 
         Ok(ps_two_liner_node)
     }
@@ -341,6 +306,32 @@ impl FocusedGraph {
         } = self.upsert_node::<MintsloaderX509Cert>(ps_x509_data, "sha256sum", &sha256sum)?;
 
         Ok(ps_x509_node)
+    }
+
+    fn mintsloader_extract_java_and_cert_from_ps(
+        &self,
+        sample_data: &[u8],
+        ps_node: &Document<MintsloaderPs>,
+    ) -> Result<()> {
+        let sample_str = get_string_from_binary(sample_data);
+        let strings = get_deobfuscated_strings_from_sample_sorted(&sample_str);
+        for i in 0..2 {
+            if let Some(string) = strings.get(i) {
+                if string.starts_with("MIIE") {
+                    let x509_node = self.mintsloader_create_x509_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPs, MintsloaderX509Cert, MintsloaderHasX509Cert>(
+                        ps_node, &x509_node,
+                    )?;
+                } else if string.starts_with("using System") {
+                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPs, MintsloaderJava, MintsloaderHasJava>(
+                        ps_node, &java_node,
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -393,7 +384,7 @@ fn decode_base64_with_xor_key(xor_key: &str, base64: &str) -> Result<String> {
 }
 
 #[allow(non_camel_case_types)]
-enum SampleType {
+enum PSKind {
     /// Sample is a powershell script.
     /// It has a base64 encoded blob, which is
     ///     1. base64-decoded and
@@ -404,26 +395,32 @@ enum SampleType {
     ///
     /// This enum contains the xor key and the base64 blob of the sample like this:
     /// `SampleType::PS_Xor_B64(xor_key, base64)`
-    PS_Xor_B64(String, String),
+    Xor_B64(String, String),
 
     /// Sample is a powershell script.
     /// It runs a dga, contacts the generated url and pipes the response in iex
-    PS_DGA_iex,
+    DGA_iex,
 
     /// Sample is a powershell script.
     /// It starts a new powershell process with a new alias "rzs"
-    PS_Start_Process,
+    Start_Process,
 
     /// Sample is a powershell script with about two lines
     /// Has obfuscated strings that contain
     ///     1. a java code snippet ([`SampleType::Java`]) and
     ///     2. a x509 certificate ([`SampleType::X509`])
-    PS_Two_Liner,
+    Two_Liner,
+}
 
-    /// Java code snippet contained inside [`SampleType::PS_Two_Liner`]
+#[allow(non_camel_case_types)]
+enum SampleType {
+    /// PS
+    PS(PSKind),
+
+    /// Java code snippet contained inside [`SampleType::PSKind::Two_Liner`]
     Java,
 
-    /// X.509 certificate contained inside [`SampleType::PS_Two_Liner`]
+    /// X.509 certificate contained inside [`SampleType::PSKind::Two_Liner`]
     X509,
 }
 
@@ -431,10 +428,10 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
     let sample_str = get_string_from_binary(sample_data);
 
     if let Ok((xor_key, base64)) = extract_key_and_base64_from_ps_xor_base64(&sample_str) {
-        return Some(SampleType::PS_Xor_B64(
+        return Some(SampleType::PS(PSKind::Xor_B64(
             xor_key.to_owned(),
             base64.to_owned(),
-        ));
+        )));
     } else if sample_str
         .find("$executioncontext;")
         .and(
@@ -444,15 +441,15 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
         )
         .is_some()
     {
-        return Some(SampleType::PS_DGA_iex);
+        return Some(SampleType::PS(PSKind::DGA_iex));
     } else if sample_str.contains("start-process powershell") {
-        return Some(SampleType::PS_Start_Process);
+        return Some(SampleType::PS(PSKind::Start_Process));
     } else if sample_str.trim().starts_with("using System") {
         return Some(SampleType::Java);
     } else if sample_str.trim().starts_with("MIIE") {
         return Some(SampleType::X509);
     } else if sample_str.lines().collect::<Vec<&str>>().len() < 5 {
-        return Some(SampleType::PS_Two_Liner);
+        return Some(SampleType::PS(PSKind::Two_Liner));
     }
 
     None
