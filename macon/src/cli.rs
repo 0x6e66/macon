@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "macon", version, about = "Malware Corpus Normalization")]
@@ -16,6 +16,9 @@ pub enum MainCommands {
         about = "Analyze malware samples where the family is already known"
     )]
     Focused(FocusedFamilies),
+
+    #[command(about = "Analyze malware samples where the family is *not* known")]
+    General(MainArgs),
 }
 
 #[derive(Subcommand, Debug)]
