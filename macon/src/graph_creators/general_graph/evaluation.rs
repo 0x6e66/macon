@@ -28,7 +28,7 @@ pub fn eval_clustering(cluster: &[&[&Node]]) -> ClusterEvaluation {
 }
 
 fn calc_ri_and_f_beta(
-    cluster_distributions: &Vec<HashMap<String, usize>>,
+    cluster_distributions: &[HashMap<String, usize>],
     label_distribution: &HashMap<String, usize>,
     beta: usize,
     n: usize,
@@ -37,7 +37,7 @@ fn calc_ri_and_f_beta(
     let tp_fp: usize = cluster_distributions
         .iter()
         .map(|dist| {
-            let cluster_n = dist.iter().map(|(_, v)| v).sum::<usize>();
+            let cluster_n = dist.values().sum::<usize>();
             bimon2(cluster_n)
         })
         .sum();
@@ -45,9 +45,9 @@ fn calc_ri_and_f_beta(
     let tp: usize = cluster_distributions
         .iter()
         .map(|dist| {
-            dist.iter()
-                .filter(|(_, v)| **v >= 2)
-                .map(|(_, v)| bimon2(*v))
+            dist.values()
+                .filter(|v| **v >= 2)
+                .map(|v| bimon2(*v))
                 .sum::<usize>()
         })
         .sum();
@@ -56,7 +56,7 @@ fn calc_ri_and_f_beta(
     let tn_fn: usize = cluster_distributions
         .iter()
         .map(|dist| {
-            let cluster_n = dist.iter().map(|(_, v)| v).sum::<usize>();
+            let cluster_n = dist.values().sum::<usize>();
             cluster_n * (n - cluster_n)
         })
         .sum::<usize>()
@@ -76,8 +76,8 @@ fn calc_ri_and_f_beta(
 
     // PPV = TP / (TP + FP)
     let ppv = tp / tp_fp;
-    // TPR = TP / (TP + FN)
-    let recall = tp / tp + (tn_fn - tn);
+    // TPR = TP / (TP + FN) = TP / (TP + TN + FN - TN)
+    let recall = tp / (tp + tn_fn - tn);
 
     let beta_cubed = beta * beta;
     let f_beta = ((beta_cubed + 1) * ppv * recall) as f64 / (beta_cubed * ppv + recall) as f64;
@@ -97,7 +97,7 @@ fn bimon2(x: usize) -> usize {
     (x * x - x) / 2
 }
 
-fn calc_purity(cluster_distributions: &Vec<HashMap<String, usize>>, n: usize) -> f64 {
+fn calc_purity(cluster_distributions: &[HashMap<String, usize>], n: usize) -> f64 {
     cluster_distributions
         .iter()
         .map(|dist| {
@@ -111,19 +111,19 @@ fn calc_purity(cluster_distributions: &Vec<HashMap<String, usize>>, n: usize) ->
 }
 
 fn calc_nmi(
-    cluster_distributions: &Vec<HashMap<String, usize>>,
+    cluster_distributions: &[HashMap<String, usize>],
     label_distribution: &HashMap<String, usize>,
     n: usize,
 ) -> f64 {
     // H(Y)
-    let entropy_class_labels = entropy_class_labels(&label_distribution, n);
+    let entropy_class_labels = entropy_class_labels(label_distribution, n);
 
     // H(C)
-    let entropy_cluster_labels = entropy_cluster_labels(&cluster_distributions, n);
+    let entropy_cluster_labels = entropy_cluster_labels(cluster_distributions, n);
 
     // H(Y|C)
     let entropy_class_labels_within_cluster =
-        entropy_class_labels_within_cluster(&cluster_distributions, n);
+        entropy_class_labels_within_cluster(cluster_distributions, n);
 
     // I(Y; C) = H(Y) - H(Y|C)
     let mutual_information = entropy_class_labels - entropy_class_labels_within_cluster;
@@ -137,8 +137,8 @@ fn calc_nmi(
 /// H(Y)
 fn entropy_class_labels(label_distribution: &HashMap<String, usize>, n: usize) -> f64 {
     label_distribution
-        .iter()
-        .map(|(_, v)| {
+        .values()
+        .map(|v| {
             let t = *v as f64 / n as f64;
             -t * f64::log2(t)
         })
@@ -146,10 +146,10 @@ fn entropy_class_labels(label_distribution: &HashMap<String, usize>, n: usize) -
 }
 
 /// H(C)
-fn entropy_cluster_labels(cluster_distributions: &Vec<HashMap<String, usize>>, n: usize) -> f64 {
+fn entropy_cluster_labels(cluster_distributions: &[HashMap<String, usize>], n: usize) -> f64 {
     cluster_distributions
         .iter()
-        .map(|dist| dist.iter().map(|(_, v)| v).sum::<usize>())
+        .map(|dist| dist.values().sum::<usize>())
         .map(|v| {
             let t = v as f64 / n as f64;
             -t * f64::log2(t)
@@ -159,22 +159,22 @@ fn entropy_cluster_labels(cluster_distributions: &Vec<HashMap<String, usize>>, n
 
 /// H(Y|C)
 fn entropy_class_labels_within_cluster(
-    cluster_distributions: &Vec<HashMap<String, usize>>,
+    cluster_distributions: &[HashMap<String, usize>],
     n: usize,
 ) -> f64 {
     cluster_distributions
         .iter()
         .map(|dist| {
-            let cluster_n: f64 = dist.iter().map(|(_, v)| v).sum::<usize>() as f64;
+            let cluster_n: f64 = dist.values().sum::<usize>() as f64;
             let f: f64 = dist
-                .iter()
-                .map(|(_, v)| {
+                .values()
+                .map(|v| {
                     let t = *v as f64 / cluster_n;
                     t * f64::log2(t)
                 })
                 .sum();
 
-            -(cluster_n as f64 / n as f64) * f
+            -(cluster_n / n as f64) * f
         })
         .sum()
 }

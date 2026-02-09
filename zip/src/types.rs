@@ -197,10 +197,10 @@ impl<'a> TryFrom<&'a [u8]> for LocalFileHeader<'a> {
         let extra_field = &value[start..stop];
 
         // check for zip64
-        if let Some(zip64) = extra_field.first() {
-            if *zip64 == 1 {
-                return Err(anyhow!("zip64"));
-            }
+        if let Some(zip64) = extra_field.first()
+            && *zip64 == 1
+        {
+            return Err(anyhow!("zip64"));
         }
 
         Ok(Self {

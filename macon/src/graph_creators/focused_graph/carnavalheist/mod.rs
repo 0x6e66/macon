@@ -230,6 +230,7 @@ impl FocusedGraph {
             .ok_or(anyhow!("Could not find next stage in ps stage"))?
             + start;
 
+        #[allow(clippy::sliced_string_as_bytes)]
         let mut python_base64 = sample_str[start..end].as_bytes().to_vec();
 
         // account for multiple times of encoding
@@ -287,6 +288,7 @@ fn extract_from_batch_e(sample_str: &str) -> Result<Vec<u8>> {
         .ok_or(anyhow!("Could not find next stage in batch stage"))?
         + start;
 
+    #[allow(clippy::sliced_string_as_bytes)]
     let ps_base64_encoded = sample_str[start..end].as_bytes();
     let ps_base64_decoded = BASE64_DECODER.decode(ps_base64_encoded)?;
 
@@ -326,6 +328,7 @@ fn extract_from_batch_command_normal(sample_str: &str) -> Result<Vec<u8>> {
         return Err(anyhow!("Could not find next stage in batch stage"));
     }
 
+    #[allow(clippy::sliced_string_as_bytes)]
     Ok(sample_str[start..end - 1].as_bytes().to_vec())
 }
 

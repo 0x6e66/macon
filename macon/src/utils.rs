@@ -48,7 +48,7 @@ pub fn get_string_from_binary(sample_data: &[u8]) -> String {
     let is_utf16 = (2 * count) as f32 / sample_data.len() as f32 > 0.98;
 
     // get sample data as string based on utf-8 oder utf-16
-    let sample_str = match is_utf16 {
+    match is_utf16 {
         false => String::from_utf8_lossy(sample_data).to_string(),
         true => {
             let tmp: Vec<u16> = (0..sample_data.len() / 2)
@@ -57,7 +57,5 @@ pub fn get_string_from_binary(sample_data: &[u8]) -> String {
 
             String::from_utf16_lossy(&tmp)
         }
-    };
-
-    sample_str
+    }
 }

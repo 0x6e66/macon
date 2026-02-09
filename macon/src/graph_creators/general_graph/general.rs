@@ -88,12 +88,7 @@ impl GeneralGraph {
 
                     writeln!(
                         &mut file.lock().unwrap(),
-                        "{eps},{},{},{},{},{}",
-                        min_pts,
-                        purity,
-                        nmi,
-                        ri,
-                        f5
+                        "{eps},{min_pts},{purity},{nmi},{ri},{f5}",
                     )
                     .unwrap();
                 }
