@@ -80,7 +80,7 @@ fn calc_ri_and_f_beta(
     let recall = tp as f64 / (tp + tn_fn - tn) as f64;
 
     let beta_cubed = (beta * beta) as f64;
-    let f_beta = (beta_cubed + 1.0) * ppv * recall / beta_cubed * ppv + recall as f64;
+    let f_beta = (beta_cubed + 1.0) * ppv * recall / (beta_cubed * ppv + recall);
 
     (ri, f_beta)
 }
