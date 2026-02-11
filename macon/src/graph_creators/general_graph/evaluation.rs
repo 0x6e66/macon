@@ -75,12 +75,12 @@ fn calc_ri_and_f_beta(
     let ri = (tp + tn) as f64 / (tp_fp + tn_fn) as f64;
 
     // PPV = TP / (TP + FP)
-    let ppv = tp / tp_fp;
+    let ppv = tp as f64 / tp_fp as f64;
     // TPR = TP / (TP + FN) = TP / (TP + TN + FN - TN)
-    let recall = tp / (tp + tn_fn - tn);
+    let recall = tp as f64 / (tp + tn_fn - tn) as f64;
 
-    let beta_cubed = beta * beta;
-    let f_beta = ((beta_cubed + 1) * ppv * recall) as f64 / (beta_cubed * ppv + recall) as f64;
+    let beta_cubed = (beta * beta) as f64;
+    let f_beta = (beta_cubed + 1.0) * ppv * recall / beta_cubed * ppv + recall as f64;
 
     (ri, f_beta)
 }
