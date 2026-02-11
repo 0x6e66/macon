@@ -63,6 +63,7 @@ impl GeneralGraph {
         distance_functions.insert("ssdeep", ssdeep_distance);
         distance_functions.insert("lavin", lavin_distance);
         distance_functions.insert("tlsh", tlsh_distance);
+        distance_functions.insert("combined", combined_distance);
 
         for (n, d) in distance_functions {
             let tmp = compute_distance_matrix(&nodes, d);
@@ -74,7 +75,7 @@ impl GeneralGraph {
             writeln!(&mut file.lock().unwrap(), "eps,min_pts,prurity,nmi,ri,f5")?;
 
             (1..100).into_par_iter().progress().for_each(|eps| {
-                for min_pts in 1..100 {
+                for min_pts in 2..100 {
                     let labels = get_dbscan_labels(&distance_matrix, eps as f64, min_pts);
                     let cluster = partition_nodes_in_cluster(&labels, &nodes);
                     let c: Vec<&[&Node]> = cluster.iter().map(|d| d.as_slice()).collect();
@@ -222,6 +223,17 @@ fn lavin_distance(a: &Node, b: &Node) -> f64 {
 #[inline(always)]
 fn tlsh_distance(a: &Node, b: &Node) -> f64 {
     tlsh::compare(&a.tlsh_hash, &b.tlsh_hash).unwrap() as f64
+}
+
+/// Calculates the euclidean distance between node a and b where the tlsh, ssdeep and lavin
+/// distance are treated as separate dimensions
+#[inline(always)]
+fn combined_distance(a: &Node, b: &Node) -> f64 {
+    let tlsh = tlsh_distance(a, b).powi(2);
+    let ssdeep = ssdeep_distance(a, b).powi(2);
+    let lavin = lavin_distance(a, b).powi(2);
+
+    f64::sqrt(tlsh + ssdeep + lavin)
 }
 
 fn get_nodes_from_files(files: Vec<PathBuf>, family: String) -> Result<Vec<Node>> {
