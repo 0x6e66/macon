@@ -28,9 +28,16 @@ pub struct CarnavalheistHasPs {
     pub _to: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 pub struct CarnavalheistPs {
     pub sha256sum: String,
+    pub ps_type: PsType,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub enum PsType {
+    Normal,
+    Concat,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
