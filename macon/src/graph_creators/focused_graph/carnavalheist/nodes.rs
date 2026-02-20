@@ -16,9 +16,16 @@ pub struct CarnavalheistHasBatch {
     pub _to: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
 pub struct CarnavalheistBatch {
     pub sha256sum: String,
+    pub batch_type: BatchType,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub enum BatchType {
+    Base64,
+    Command,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]

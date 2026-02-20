@@ -25,8 +25,9 @@ use crate::{
     graph_creators::focused_graph::{
         FocusedCorpus, FocusedGraph, HasMalwareFamily,
         carnavalheist::nodes::{
-            Carnavalheist, CarnavalheistBatch, CarnavalheistHasBatch, CarnavalheistHasPs,
-            CarnavalheistHasPython, CarnavalheistPs, CarnavalheistPython, PsType,
+            BatchType, Carnavalheist, CarnavalheistBatch, CarnavalheistHasBatch,
+            CarnavalheistHasPs, CarnavalheistHasPython, CarnavalheistPs, CarnavalheistPython,
+            PsType,
         },
     },
     utils::get_string_from_binary,
@@ -113,9 +114,9 @@ impl FocusedGraph {
         main_node: &Document<Carnavalheist>,
     ) -> Result<()> {
         match detect_sample_type(sample_data) {
-            Some(SampleType::BatchE) => {
+            Some(SampleType::BatchBase64) => {
                 let batch_node =
-                    self.carnavalheist_create_batch_node(sample_data, SampleType::BatchE)?;
+                    self.carnavalheist_create_batch_node(sample_data, SampleType::BatchBase64)?;
                 self.upsert_edge::<Carnavalheist, CarnavalheistBatch, CarnavalheistHasBatch>(
                     main_node,
                     &batch_node,
@@ -151,8 +152,15 @@ impl FocusedGraph {
     ) -> Result<Document<CarnavalheistBatch>> {
         let sha256sum = digest(sample_data);
 
+        let batch_type = match sample_type {
+            SampleType::BatchBase64 => Ok(BatchType::Base64),
+            SampleType::BatchCommand(_) => Ok(BatchType::Command),
+            _ => Err(anyhow!("Invalid SampleType")),
+        }?;
+
         let batch_node_data = CarnavalheistBatch {
             sha256sum: sha256sum.clone(),
+            batch_type,
         };
 
         let UpsertResult {
@@ -169,7 +177,7 @@ impl FocusedGraph {
         let sample_str = get_string_from_binary(sample_data);
 
         let (ps_stage, ps_type) = match sample_type {
-            SampleType::BatchE => (extract_from_batch_e(&sample_str)?, PsType::Normal),
+            SampleType::BatchBase64 => (extract_from_batch_e(&sample_str)?, PsType::Normal),
             SampleType::BatchCommand(ps_type) => {
                 (extract_from_batch_command(&sample_str)?, ps_type)
             }
@@ -241,7 +249,7 @@ impl FocusedGraph {
 }
 
 enum SampleType {
-    BatchE,
+    BatchBase64,
     BatchCommand(PsType),
     Python,
 }
@@ -393,7 +401,7 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
     let sample_str = get_string_from_binary(sample_data);
 
     if sample_str.contains("powershell -WindowStyle Hidden -e") {
-        return Some(SampleType::BatchE);
+        return Some(SampleType::BatchBase64);
     } else if sample_str.contains("powershell -WindowStyle Hidden -Command") {
         if sample_str.contains("set \"base64=") {
             return Some(SampleType::BatchCommand(PsType::Concat));
