@@ -11,7 +11,6 @@ use anyhow::Result;
 use indicatif::ParallelProgressIterator;
 use lavinhash::{HashConfig, model::FuzzyFingerprint};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use sha256::digest;
 use smartcore::{
     cluster::{
         dbscan::{DBSCAN, DBSCANParameters},
@@ -141,7 +140,6 @@ fn partition_nodes_in_cluster<'a>(labels: &[usize], nodes: &'a [Node]) -> Vec<Ve
 
 #[derive(Clone, Debug)]
 pub struct Node {
-    pub sha256sum: String,
     pub ssdeep_hash: String,
     pub lavinhash: FuzzyFingerprint,
     pub tlsh_hash: String,
@@ -248,7 +246,6 @@ fn get_nodes_from_files(files: Vec<PathBuf>, family: String) -> Result<Vec<Node>
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
 
-            let sha256sum = digest(&buf);
             let ssdeep_hash = ssdeep::hash(&buf)?;
 
             let lavin_config = HashConfig {
@@ -261,7 +258,6 @@ fn get_nodes_from_files(files: Vec<PathBuf>, family: String) -> Result<Vec<Node>
             let tlsh_hash = tmp.to_string();
 
             Ok(Node {
-                sha256sum,
                 ssdeep_hash,
                 lavinhash,
                 tlsh_hash,
