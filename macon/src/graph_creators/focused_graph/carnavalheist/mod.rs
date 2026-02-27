@@ -400,14 +400,24 @@ fn extract_from_batch_command(sample_str: &str) -> Result<Vec<u8>> {
 fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
     let sample_str = get_string_from_binary(sample_data);
 
-    if sample_str.contains("powershell -WindowStyle Hidden -e") {
-        return Some(SampleType::BatchBase64);
-    } else if sample_str.contains("powershell -WindowStyle Hidden -Command") {
-        if sample_str.contains("set \"base64=") {
-            return Some(SampleType::BatchCommand(PsType::Concat));
+    if sample_str.contains("powershell")
+        && sample_str.contains("-WindowStyle")
+        && sample_str.contains("Hidden")
+    {
+        if sample_str.contains("-e") {
+            return Some(SampleType::BatchBase64);
+        } else if sample_str.contains("-Command") {
+            if sample_str.contains("set \"base64=") {
+                return Some(SampleType::BatchCommand(PsType::Concat));
+            }
+            return Some(SampleType::BatchCommand(PsType::Normal));
+        } else {
+            return None;
         }
-        return Some(SampleType::BatchCommand(PsType::Normal));
-    } else if sample_str.contains("RANDOMIZADO") || sample_str.contains("import pickle") {
+    } else if sample_str.contains("RANDOMIZADO")
+        || sample_str.contains("import pickle")
+        || sample_str.contains("import base64")
+    {
         return Some(SampleType::Python);
     }
 
