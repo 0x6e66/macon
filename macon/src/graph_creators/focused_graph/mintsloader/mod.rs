@@ -28,8 +28,8 @@ use crate::{
     graph_creators::focused_graph::{
         FocusedCorpus, FocusedGraph, HasMalwareFamily,
         mintsloader::nodes::{
-            Mintsloader, MintsloaderHasJava, MintsloaderHasPs, MintsloaderHasX509Cert,
-            MintsloaderJava, MintsloaderPs, MintsloaderPsKind, MintsloaderX509Cert,
+            Mintsloader, MintsloaderCS, MintsloaderHasCS, MintsloaderHasPs, MintsloaderHasX509Cert,
+            MintsloaderPs, MintsloaderPsKind, MintsloaderX509Cert,
         },
     },
     utils::get_string_from_binary,
@@ -57,7 +57,7 @@ impl FocusedGraph {
 
         // Create index for sha256sum field
         ensure_index::<MintsloaderPs>(db, idx.clone())?;
-        ensure_index::<MintsloaderJava>(db, idx.clone())?;
+        ensure_index::<MintsloaderCS>(db, idx.clone())?;
         ensure_index::<MintsloaderX509Cert>(db, idx)?;
 
         let main_node = self.mintsloader_create_main_node(corpus_node)?;
@@ -132,8 +132,8 @@ impl FocusedGraph {
                     main_node, &ps_node,
                 )?;
             }
-            SampleType::Java => {
-                self.mintsloader_create_java_node(sample_data)?;
+            SampleType::CS => {
+                self.mintsloader_create_cs_node(sample_data)?;
             }
             SampleType::X509 => {
                 self.mintsloader_create_x509_node(sample_data)?;
@@ -198,8 +198,8 @@ impl FocusedGraph {
             )?;
         }
 
-        // check for java code snippet and X.509 certificate
-        self.mintsloader_extract_java_and_cert_from_ps(sample_data, &ps_xor_node)?;
+        // check for C# code snippet and X.509 certificate
+        self.mintsloader_extract_cs_and_cert_from_ps(sample_data, &ps_xor_node)?;
 
         Ok(ps_xor_node)
     }
@@ -263,28 +263,25 @@ impl FocusedGraph {
             return Ok(ps_two_liner_node);
         }
 
-        // check for java code snippet and X.509 certificate
-        self.mintsloader_extract_java_and_cert_from_ps(sample_data, &ps_two_liner_node)?;
+        // check for C# code snippet and X.509 certificate
+        self.mintsloader_extract_cs_and_cert_from_ps(sample_data, &ps_two_liner_node)?;
 
         Ok(ps_two_liner_node)
     }
 
-    fn mintsloader_create_java_node(
-        &self,
-        sample_data: &[u8],
-    ) -> Result<Document<MintsloaderJava>> {
+    fn mintsloader_create_cs_node(&self, sample_data: &[u8]) -> Result<Document<MintsloaderCS>> {
         let sha256sum = digest(sample_data);
 
-        let ps_java_data = MintsloaderJava {
+        let ps_cs_data = MintsloaderCS {
             sha256sum: sha256sum.clone(),
         };
 
         let UpsertResult {
-            document: ps_java_node,
+            document: ps_cs_node,
             created: _,
-        } = self.upsert_node::<MintsloaderJava>(ps_java_data, "sha256sum", &sha256sum)?;
+        } = self.upsert_node::<MintsloaderCS>(ps_cs_data, "sha256sum", &sha256sum)?;
 
-        Ok(ps_java_node)
+        Ok(ps_cs_node)
     }
 
     fn mintsloader_create_x509_node(
@@ -308,7 +305,7 @@ impl FocusedGraph {
         Ok(ps_x509_node)
     }
 
-    fn mintsloader_extract_java_and_cert_from_ps(
+    fn mintsloader_extract_cs_and_cert_from_ps(
         &self,
         sample_data: &[u8],
         ps_node: &Document<MintsloaderPs>,
@@ -323,9 +320,9 @@ impl FocusedGraph {
                         ps_node, &x509_node,
                     )?;
                 } else if string.starts_with("using System") {
-                    let java_node = self.mintsloader_create_java_node(string.as_bytes())?;
-                    self.upsert_edge::<MintsloaderPs, MintsloaderJava, MintsloaderHasJava>(
-                        ps_node, &java_node,
+                    let cs_node = self.mintsloader_create_cs_node(string.as_bytes())?;
+                    self.upsert_edge::<MintsloaderPs, MintsloaderCS, MintsloaderHasCS>(
+                        ps_node, &cs_node,
                     )?;
                 }
             }
@@ -407,7 +404,7 @@ enum PSKind {
 
     /// Sample is a powershell script with about two lines
     /// Has obfuscated strings that contain
-    ///     1. a java code snippet ([`SampleType::Java`]) and
+    ///     1. a C# code snippet ([`SampleType::CS`]) and
     ///     2. a x509 certificate ([`SampleType::X509`])
     Two_Liner,
 }
@@ -417,8 +414,8 @@ enum SampleType {
     /// PS
     PS(PSKind),
 
-    /// Java code snippet contained inside [`SampleType::PSKind::Two_Liner`]
-    Java,
+    /// C# code snippet contained inside [`SampleType::PSKind::Two_Liner`]
+    CS,
 
     /// X.509 certificate contained inside [`SampleType::PSKind::Two_Liner`]
     X509,
@@ -445,7 +442,7 @@ fn detect_sample_type(sample_data: &[u8]) -> Option<SampleType> {
     } else if sample_str.contains("start-process powershell") {
         return Some(SampleType::PS(PSKind::Start_Process));
     } else if sample_str.trim().starts_with("using System") {
-        return Some(SampleType::Java);
+        return Some(SampleType::CS);
     } else if sample_str.trim().starts_with("MIIE") {
         return Some(SampleType::X509);
     } else if sample_str.lines().collect::<Vec<&str>>().len() < 5 {

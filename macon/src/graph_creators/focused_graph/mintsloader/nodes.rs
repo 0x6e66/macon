@@ -31,14 +31,14 @@ pub enum MintsloaderPsKind {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderHasJava {
+pub struct MintsloaderHasCS {
     pub _key: String,
     pub _from: String,
     pub _to: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
-pub struct MintsloaderJava {
+pub struct MintsloaderCS {
     pub sha256sum: String,
 }
 
@@ -55,7 +55,7 @@ pub struct MintsloaderX509Cert {
 }
 
 impl_edge_attributes!(MintsloaderHasPs);
-impl_edge_attributes!(MintsloaderHasJava);
+impl_edge_attributes!(MintsloaderHasCS);
 impl_edge_attributes!(MintsloaderHasX509Cert);
 
 pub fn mintsloader_edge_definitions() -> Vec<EdgeDefinition> {
@@ -66,9 +66,9 @@ pub fn mintsloader_edge_definitions() -> Vec<EdgeDefinition> {
             to: vec![get_name::<MintsloaderPs>()],
         },
         EdgeDefinition {
-            collection: get_name::<MintsloaderHasJava>(),
+            collection: get_name::<MintsloaderHasCS>(),
             from: vec![get_name::<MintsloaderPs>()],
-            to: vec![get_name::<MintsloaderJava>()],
+            to: vec![get_name::<MintsloaderCS>()],
         },
         EdgeDefinition {
             collection: get_name::<MintsloaderHasX509Cert>(),
