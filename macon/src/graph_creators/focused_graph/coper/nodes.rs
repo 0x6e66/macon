@@ -58,6 +58,20 @@ pub enum CoperELFArchitecture {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
+pub struct CoperHasConfig {
+    pub _key: String,
+    pub _from: String,
+    pub _to: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
+pub struct CoperConfig {
+    pub index: String,
+    pub customer: String,
+    pub tag: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, JsonSchema, Default)]
 pub struct CoperHasDEX {
     pub _key: String,
     pub _from: String,
@@ -73,6 +87,7 @@ impl_edge_attributes!(CoperHasAPK);
 impl_edge_attributes!(CoperHasInnerAPK);
 impl_edge_attributes!(CoperHasELF);
 impl_edge_attributes!(CoperHasDEX);
+impl_edge_attributes!(CoperHasConfig);
 
 pub fn coper_edge_definitions() -> Vec<EdgeDefinition> {
     vec![
@@ -95,6 +110,11 @@ pub fn coper_edge_definitions() -> Vec<EdgeDefinition> {
             collection: get_name::<CoperHasDEX>(),
             from: vec![get_name::<CoperAPK>()],
             to: vec![get_name::<CoperDEX>()],
+        },
+        EdgeDefinition {
+            collection: get_name::<CoperHasConfig>(),
+            from: vec![get_name::<CoperAPK>()],
+            to: vec![get_name::<CoperConfig>()],
         },
     ]
 }

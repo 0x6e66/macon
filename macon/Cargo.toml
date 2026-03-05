@@ -13,6 +13,7 @@ flate2 = "1.1.4"
 indicatif = { version = "0.18.0", features = ["rayon"] }
 lavinhash = "1.0.1"
 lazy_static = "1.5.0"
+mace = "0.1.4"
 macon-cag = { version = "0.1.0", path = "../cag" }
 macon-zip = { version = "0.1.0", path = "../zip" }
 rayon = "1.11.0"

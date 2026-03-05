@@ -9,6 +9,9 @@ use std::{
 use anyhow::{Result, anyhow};
 use arangors::Document;
 use indicatif::ParallelProgressIterator;
+use mace::{
+    classifier::MalwareFamiliy, configuration::MalwareConfiguration, extractor::extract_for_family,
+};
 use macon_cag::{
     base_creator::{GraphCreatorBase, UpsertResult},
     utils::ensure_index,
@@ -21,8 +24,8 @@ use crate::{
     graph_creators::focused_graph::{
         FocusedCorpus, FocusedGraph, HasMalwareFamily,
         coper::nodes::{
-            Coper, CoperAPK, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK, CoperHasDEX,
-            CoperHasELF, CoperHasInnerAPK,
+            Coper, CoperAPK, CoperConfig, CoperDEX, CoperELF, CoperELFArchitecture, CoperHasAPK,
+            CoperHasConfig, CoperHasDEX, CoperHasELF, CoperHasInnerAPK,
         },
     },
     utils::extract_from_zip,
@@ -41,6 +44,7 @@ impl FocusedGraph {
         ensure_index::<CoperAPK>(db, idx.clone())?;
         ensure_index::<CoperELF>(db, idx.clone())?;
         ensure_index::<CoperDEX>(db, idx)?;
+        ensure_index::<CoperConfig>(db, vec!["index".to_string()])?;
 
         let main_node = self.coper_create_main_node(corpus_node)?;
 
@@ -196,9 +200,51 @@ impl FocusedGraph {
                     apk_nodes.push(inner_apk_node);
                 }
             }
+
+            if let Some(config) = apk_analysis_result.config {
+                let customer = config
+                    .data
+                    .dga_parameters
+                    .strings
+                    .get("customer")
+                    .to_owned()
+                    .ok_or(anyhow!("no customer found in apk"))?
+                    .to_owned();
+                let tag = config
+                    .data
+                    .dga_parameters
+                    .strings
+                    .get("tag")
+                    .ok_or(anyhow!("no tag found in apk"))?
+                    .to_owned();
+                let index = format!("{customer}-{tag}");
+
+                let config_data = CoperConfig {
+                    index,
+                    customer,
+                    tag,
+                };
+
+                let config_node = self.coper_create_config_node(config_data)?;
+                self.upsert_edge::<CoperAPK, CoperConfig, CoperHasConfig>(
+                    &apk_nodes[0],
+                    &config_node,
+                )?;
+            }
         }
 
         Ok(apk_nodes)
+    }
+
+    fn coper_create_config_node(&self, config: CoperConfig) -> Result<Document<CoperConfig>> {
+        let index = config.index.clone();
+
+        let UpsertResult {
+            document: config_node,
+            created: _,
+        } = self.upsert_node(config, "index", &index)?;
+
+        Ok(config_node)
     }
 
     fn coper_create_dex_node(&self, sample_data: &[u8]) -> Result<Document<CoperDEX>> {
@@ -224,6 +270,7 @@ impl FocusedGraph {
                 elfs: vec![],
                 dexs: vec![],
                 apks: vec![],
+                config: None,
             };
         };
 
@@ -252,11 +299,14 @@ impl FocusedGraph {
             .collect();
         let dexs = extract_dexs_from_apk(&mut archive, dex_files);
 
+        let config = extract_for_family(sample_data, &MalwareFamiliy::Coper).ok();
+
         APKAnalysisResult {
             is_cut: false,
             elfs,
             dexs,
             apks,
+            config,
         }
     }
 }
@@ -389,4 +439,5 @@ struct APKAnalysisResult {
     elfs: Vec<(Vec<u8>, CoperELFArchitecture)>,
     dexs: Vec<Vec<u8>>,
     apks: Vec<Vec<u8>>,
+    config: Option<MalwareConfiguration>,
 }
